@@ -1,0 +1,27 @@
+Package: plotphotos
+Type: Package
+Title: Copy and Rename JPEGs by Nearest Plot Locality ID
+Version: 0.1.2
+Authors@R: c(
+    person("Josef", "Brůna", email = "josef.bruna@ibot.cas.cz", role = c("aut", "cre"))
+  )
+Description: Copies (does not move) JPEG/JPG files from one or more input folders,
+    extracts EXIF GPS when available, assigns each photo to the nearest plot locality_id,
+    and copies into a flattened output structure. Photos without GPS are skipped by default,
+    but can still be copied when either (a) the filename already begins with a locality_id
+    (names=TRUE) or (b) the parent folder name equals a locality_id (folders=TRUE).
+    Output naming avoids conflicts across multiple runs by checking existing files.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Imports:
+    sf,
+    exifr,
+    units
+Suggests:
+    roxygen2,
+    testthat (>= 3.0.0),
+    devtools,
+    usethis
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
