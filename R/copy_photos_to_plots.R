@@ -42,7 +42,6 @@ copy_photos_to_plots <- function(
   sub_correct  = "correct",
   sub_far      = "review_far",
   sub_multiple = "review_multiple",
-  sub_no_gps   = "review_no_gps",
   sub_named    = "name",
   sub_folder   = "folder",
   write_log_csv = file.path(out_root, "rename_log.csv"),
@@ -76,7 +75,7 @@ copy_photos_to_plots <- function(
 
   # ---- output folders ----
   dir.create(out_root, showWarnings = FALSE, recursive = TRUE)
-  out_subs <- c(sub_correct, sub_far, sub_multiple, sub_no_gps, sub_named, sub_folder)
+  out_subs <- c(sub_correct, sub_far, sub_multiple, sub_named, sub_folder)
   for (s in out_subs) dir.create(file.path(out_root, s), showWarnings = FALSE, recursive = TRUE)
 
   # ---- existing log (skip already-copied sources) ----
