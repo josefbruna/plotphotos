@@ -32,21 +32,6 @@ It also reads the existing `rename_log.csv` (if present) and skips sources alrea
 remotes::install_github("josef.bruna/plotphotos", upgrade = "never")
 library(plotphotos)
 
-img_roots <- c(
-  "O:/FOTKY/2025-07-17 NPČŠ - snímkování - Macek"
-)
-
-copy_photos_to_plots(
-  img_roots   = img_roots,
-  out_root    = "plotphotos_output",
-  plots_path  = "active.gpkg",
-  plots_layer = "localities_active",
-  threshold_m = 30,
-  far_max_m = 100,  # e.g. only copy GPS photos up to 100 m away
-  names   = TRUE,   # copy no-GPS files already named by locality_id -> out_root/name
-  folders = TRUE,   # copy no-GPS files in folders named locality_id -> out_root/folder (renamed)
-  verbose = TRUE
-)
 ```
 
 
