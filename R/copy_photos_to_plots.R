@@ -276,7 +276,7 @@ copy_photos_to_plots <- function(
           idx <- still[hit2]
           
           dec$status[idx] <- "no_gps_named"
-          dec$keep_original_name[idx] <- TRUE
+          dec$keep_original_name[idx] <- FALSE
           dec$base_name[idx] <- unname(match_to_name[tolower(matched_value[hit2])])
           dec$dest_dir[idx] <- file.path(out_root, sub_named)
         }
