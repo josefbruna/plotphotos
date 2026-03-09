@@ -2,21 +2,23 @@
 % Please edit documentation in R/copy_photos_to_plots.R
 \name{copy_photos_to_plots}
 \alias{copy_photos_to_plots}
-\title{Copy and rename photos by nearest plot locality_id}
+\title{Copy and rename photos by nearest plot}
 \usage{
 copy_photos_to_plots(
   img_roots,
   out_root,
   plots_path,
   plots_layer = NULL,
-  id_field = "locality_id",
+  match_field = "locality_id",
+  name_field = match_field,
   threshold_m = 30,
+  far_max_m = 100,
   names = TRUE,
   folders = TRUE,
   sub_correct = "correct",
   sub_far = "review_far",
   sub_multiple = "review_multiple",
-  sub_no_gps = "review_no_gps",
+  sub_no_gps = "no_gps",
   sub_named = "name",
   sub_folder = "folder",
   write_log_csv = file.path(out_root, "rename_log.csv"),
@@ -32,13 +34,17 @@ copy_photos_to_plots(
 
 \item{plots_layer}{Layer name inside GeoPackage (required only if multiple layers).}
 
-\item{id_field}{Field name containing locality IDs.}
+\item{match_field}{Field name used for matching no-GPS photos by filename prefix or parent folder.}
+
+\item{name_field}{Field name used for the final output filename stem. Defaults to \code{match_field}.}
 
 \item{threshold_m}{Distance threshold (meters) for "correct" vs "far".}
 
-\item{names}{Logical; allow copying no-GPS photos whose filename already begins with a locality_id into subfolder "name".}
+\item{far_max_m}{Upper distance threshold (meters) for "far".}
 
-\item{folders}{Logical; allow copying no-GPS photos whose parent folder name equals a locality_id into subfolder "folder" (renamed to locality_id pattern).}
+\item{names}{Logical; allow copying no-GPS photos whose filename already begins with a value from \code{match_field} into subfolder "name".}
+
+\item{folders}{Logical; allow copying no-GPS photos whose parent folder name equals a value from \code{match_field} into subfolder "folder" (renamed using \code{name_field}).}
 
 \item{sub_correct}{Subfolder name for within threshold.}
 
@@ -46,7 +52,7 @@ copy_photos_to_plots(
 
 \item{sub_multiple}{Subfolder name for multiple within threshold.}
 
-\item{sub_no_gps}{Subfolder name for no-GPS (logged; not copied unless \code{names}/\code{folders} rules match).}
+\item{sub_no_gps}{Subfolder name for no-GPS photos (logged; not copied unless \code{names}/\code{folders} rules match).}
 
 \item{sub_named}{Subfolder name for name-rule copies.}
 
@@ -61,12 +67,12 @@ Invisibly returns the log data.frame.
 }
 \description{
 Copies (does not move) JPG/JPEG photos from one or more input folders, reads EXIF GPS,
-assigns each GPS photo to the nearest plot (\code{locality_id}) and copies into flattened
-output subfolders. Photos without GPS are skipped by default, but can still be copied
-when:
+assigns each GPS photo to the nearest plot, and copies into flattened output subfolders.
+Photos without GPS are skipped by default, but can still be copied when:
 \itemize{
-\item \code{names = TRUE}: the filename already begins with a \code{locality_id} (any suffix).
-\item \code{folders = TRUE}: the parent folder name equals a \code{locality_id} (files are renamed to that ID).
+\item \code{names = TRUE}: the filename already begins with a value from \code{match_field} (any suffix).
+\item \code{folders = TRUE}: the parent folder name equals a value from \code{match_field}
+(files are renamed using \code{name_field}).
 }
 }
 \details{
