@@ -29,7 +29,8 @@ It also reads the existing `rename_log.csv` (if present) and skips sources alrea
 ### How to install
 
 ``` r
-remotes::install_github("josef.bruna/plotphotos", upgrade = "never")
+
+remotes::install_github("josefbruna/plotphotos", upgrade = "never")
 library(plotphotos)
 
 ```
@@ -51,7 +52,8 @@ copy_photos_to_plots(
   out_root    = "plotphotos_output",
   plots_path  = plots_path,
   plots_layer = "localities_active",
-  id_field    = "locality_id",
+  match_field = "locality_id",  # what to look for
+  name_field = "locality_id",  # what to use for naming
   threshold_m = 30,
   far_max_m = 100,  # e.g. only copy GPS photos up to 100 m away
   names   = TRUE,
