@@ -9,3 +9,5 @@
 ^plotphotos.*[.]zip$
 ^[.]DS_Store$
 ^Thumbs[.]db$
+^.*\.Rproj$
+^\.Rproj\.user$
