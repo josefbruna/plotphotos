@@ -123,5 +123,8 @@ if (capabilities("jpeg")) {
 }
 }
 \seealso{
-\code{\link{copy_photos_to_plots}}, \code{\link[base:strptime]{strftime}}, \code{\link{plotphotos-package}}
+\code{\link{copy_photos_to_plots}}, \code{\link[base:strptime]{strftime}}
+}
+\author{
+Josef Brůna (author and maintainer). OpenAI's ChatGPT provided extensive assistance with code, tests, and documentation as a development tool, not as a co-author. See \code{citation("plotphotos")} for the package citation and separate AI-tool acknowledgement.
 }

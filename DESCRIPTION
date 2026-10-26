@@ -1,7 +1,7 @@
 Package: plotphotos
 Type: Package
 Title: Organize Field Photographs and Annotate Capture Dates
-Version: 0.3.0
+Version: 0.3.1
 Authors@R: c(
     person("Josef", "Brůna", email = "josef.bruna@ibot.cas.cz",
            role = c("aut", "cre")),

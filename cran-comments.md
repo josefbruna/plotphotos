@@ -1,4 +1,4 @@
-# plotphotos 0.3.0 - draft, not yet submitted
+# plotphotos 0.3.1 - draft, not yet submitted
 
 This file is excluded from the built package. Update it with real results before
 using it in a CRAN submission. Do not submit this unchecked draft as a clean check.
@@ -14,25 +14,33 @@ Both workflows keep explicit processing logs. The package code contains no netwo
 
 Josef Brůna is the author and maintainer. OpenAI's ChatGPT provided extensive
 assistance with code development, debugging, tests, and documentation. This is
-explicitly acknowledged in the README, package help, and citation information;
+explicitly acknowledged in the README, both function help pages, and citation information;
 OpenAI is not listed as a package author. Original Institute of Botany copyright
 and MIT licensing have been retained. Specific model snapshots were not recorded.
 The maintainer must review and approve the final release.
 
 ## Validation status for this revision
 
-- Source and documentation review: performed; see the separate validation report.
+- Source and documentation review: performed; help index and regression checks updated; this is not an R execution result.
 - R runtime tests, examples, installed-help rendering, and R CMD check: NOT RUN.
-- Windows, macOS, Linux R-release, R-devel, and R-oldrel CI: configured, NOT RUN.
+- Windows, macOS, Linux R-release, R-devel, R-oldrel, and R 4.3.3 CI: configured, NOT RUN.
 - PDF manual build: NOT RUN.
 - Real-photo batch on the maintainer's Windows installation: NOT RUN.
 - CRAN name availability, incoming checks, URL checks, win-builder: NOT VERIFIED.
 - CRAN submission: NOT MADE.
 
 The editing container had no R or Rscript, and could not download an R installation.
-Earlier test counts reported for 0.2.x are not results for 0.3.0 and are not repeated
+Earlier test counts reported for 0.2.x are not results for 0.3.1 and are not repeated
 as evidence. Replace the list above with actual versions/platforms and check
 results once the included checks have been run. Explain remaining NOTEs accurately.
+
+## Unresolved installed-help report
+
+Function help returned "Internal Server Error" on the maintainer's machine,
+while Description and NEWS worked. The extra package topic is now removed, but
+the root cause has not been established. Do not submit until the installed-help
+checks pass and the reported failure is resolved. The separate read-only
+help diagnostic compares the affected session with a fresh Rscript process.
 
 ## Final maintainer checks
 

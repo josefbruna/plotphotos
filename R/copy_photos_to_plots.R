@@ -93,7 +93,7 @@
 #' When there is no new work, the existing log, or a zero-row data frame with the
 #' same columns, is returned without creating output directories.
 #'
-#' @seealso \code{\link{write_into_image}}, \code{\link{plotphotos-package}}
+#' @seealso \code{\link{write_into_image}}
 #'
 #' @examples
 #' (function() {
@@ -117,6 +117,7 @@
 #'   )
 #'   log[, c("status", "copy_ok")]
 #' })()
+#' @author Josef Brůna (author and maintainer). OpenAI's ChatGPT provided extensive assistance with code, tests, and documentation as a development tool, not as a co-author. See \code{citation("plotphotos")} for the package citation and separate AI-tool acknowledgement.
 #' @encoding UTF-8
 #' @export
 copy_photos_to_plots <- function(

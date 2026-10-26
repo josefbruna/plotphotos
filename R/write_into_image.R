@@ -81,7 +81,7 @@
 #' \item{processed_at}{Local processing time, formatted as year-month-day hour:minute:second.}
 #' }
 #'
-#' @seealso \code{\link{copy_photos_to_plots}}, \code{\link[base:strptime]{strftime}}, \code{\link{plotphotos-package}}
+#' @seealso \code{\link{copy_photos_to_plots}}, \code{\link[base:strptime]{strftime}}
 #'
 #' @examples
 #' if (capabilities("jpeg")) {
@@ -101,6 +101,7 @@
 #'     log[, c("status", "stamp_text", "date_source")]
 #'   })()
 #' }
+#' @author Josef Brůna (author and maintainer). OpenAI's ChatGPT provided extensive assistance with code, tests, and documentation as a development tool, not as a co-author. See \code{citation("plotphotos")} for the package citation and separate AI-tool acknowledgement.
 #' @encoding UTF-8
 #' @export
 write_into_image <- function(input_folder, output_folder,

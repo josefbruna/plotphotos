@@ -307,18 +307,62 @@ test_that("invalid resize and quality parameters fail before creating outputs", 
   expect_false(dir.exists(output))
 })
 
-test_that("both installed help pages and the package topic resolve and render", {
-  root <- test_root()
+test_that("only the two public functions have installed help topics", {
+  topics <- c("copy_photos_to_plots", "write_into_image")
+  expect_setequal(getNamespaceExports("plotphotos"), topics)
+  package_path <- find.package("plotphotos")
+  metadata <- file.path(package_path, "Meta", "Rd.rds")
+  skip_if_not(file.exists(metadata), "Requires an installed package (R CMD check).")
   database <- tools::Rd_db("plotphotos")
-  for (topic in c("copy_photos_to_plots", "write_into_image", "plotphotos-package")) {
-    expect_gt(length(utils::help(topic, package = "plotphotos")), 0L)
-    page <- database[[paste0(topic, ".Rd")]]
-    expect_false(is.null(page))
-    target <- file.path(root, paste0(topic, ".html"))
-    expect_no_error(tools::Rd2HTML(page, out = target, package = "plotphotos"))
-    html <- paste(readLines(target, warn = FALSE), collapse = "\n")
-    expect_match(html, "<html", ignore.case = TRUE)
-    expect_false(grepl("Internal Server Error", html, fixed = TRUE))
+  expect_setequal(names(database), paste0(topics, ".Rd"))
+  index <- readRDS(metadata)
+  expect_equal(nrow(index), 2L)
+  expect_setequal(unlist(index$Aliases, use.names = FALSE), topics)
+})
+
+test_that("installed help retrieval and both renderers work", {
+  root <- test_root()
+  package_path <- find.package("plotphotos")
+  skip_if_not(file.exists(file.path(package_path, "Meta", "Rd.rds")),
+              "Requires an installed package (R CMD check).")
+  # The dynamic help server uses .getHelpFile, not just tools::Rd_db.
+  get_help_file <- getFromNamespace(".getHelpFile", "utils")
+  for (topic in c("copy_photos_to_plots", "write_into_image")) {
+    h <- utils::help(topic, package = "plotphotos", lib.loc = dirname(package_path))
+    expect_length(h, 1L)
+    page <- get_help_file(h)
+    expect_no_error(tools::Rd2txt(page, out = file.path(root, paste0(topic, ".txt"))))
+    for (dynamic in c(FALSE, TRUE)) {
+      target <- file.path(root, paste0(topic, "-", dynamic, ".html"))
+      expect_no_error(tools::Rd2HTML(page, out = target,
+                                    package = package_path, dynamic = dynamic))
+      html <- paste(readLines(target, warn = FALSE), collapse = "\n")
+      expect_match(html, "<html", ignore.case = TRUE)
+      expect_false(grepl("Internal Server Error", html, fixed = TRUE))
+    }
+  }
+})
+
+test_that("the dynamic help request handler serves both function pages", {
+  package_path <- find.package("plotphotos")
+  skip_if_not(file.exists(file.path(package_path, "Meta", "Rd.rds")),
+              "Requires an installed package (R CMD check).")
+  # Exercise the handler directly without opening a network port in CRAN tests.
+  handler <- getFromNamespace("httpd", "tools")
+  for (topic in c("copy_photos_to_plots", "write_into_image")) {
+    response <- handler(paste0("/library/plotphotos/html/", topic, ".html"),
+                        query = NULL)
+    status <- response[["status code"]]
+    expect_true(is.null(status) || identical(as.integer(status), 200L))
+    html <- response$payload
+    if (is.null(html) && !is.null(response$file)) {
+      html <- readLines(response$file, warn = FALSE)
+    }
+    expect_true(is.character(html) && length(html) > 0L)
+    expect_match(paste(html, collapse = "\n"), "<html", ignore.case = TRUE)
+    expect_match(paste(html, collapse = "\n"), topic, fixed = TRUE)
+    expect_false(grepl("Internal Server Error|httpd error", paste(html, collapse = "\n"),
+                       ignore.case = TRUE))
   }
 })
 

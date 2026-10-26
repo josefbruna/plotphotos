@@ -1,4 +1,4 @@
-# plotphotos 0.3.0
+# plotphotos 0.3.1
 
 Organize field photographs and accompanying files by plot locality, then optionally
 resize JPEG copies and write capture dates onto them. There are just two public
@@ -11,7 +11,7 @@ maintaining the package. ChatGPT is acknowledged as a development tool, not a
 package author. The package does not call an AI service or send photographs to one.
 Specific model snapshots used throughout development were not recorded.
 
-**Release status:** 0.3.0 is a CRAN-preparation candidate. It has not been submitted
+**Release status:** 0.3.1 is a CRAN-preparation candidate. It has not been submitted
 to or accepted by CRAN. The editor used for this revision had no R runtime and
 could not download one, so no passing R checks are claimed for this revision.
 The included workflow and tests must be run before release/submission.
@@ -43,8 +43,7 @@ Restart R once more after installation. Then:
 
 ```r
 library(plotphotos)
-packageVersion("plotphotos")  # should be 0.3.0
-help("plotphotos", package = "plotphotos")
+packageVersion("plotphotos")  # should be 0.3.1
 help("copy_photos_to_plots", package = "plotphotos")
 help("write_into_image", package = "plotphotos")
 citation("plotphotos")
@@ -259,37 +258,61 @@ a hidden `.plotphotos-log-backup-*.csv` next to the log; retain it for recovery.
 
 ## Help pages showing "Internal Server Error"
 
-This revision ships plain, complete `.Rd` help sources and tests that resolve and
-render all three installed help topics. An installed-help server error alone does
-not establish whether the cause is the package documentation, an old loaded help
-database, another library copy, or the R/RStudio help server. The reported local
-error could not be reproduced in the editor's environment because R is absent.
+There are exactly two help topics, one per exported function. No internal helper
+has a help page. The extra package overview and its duplicate aliases have been
+removed; the README and DESCRIPTION provide the overview instead. When updating
+an existing GitHub checkout, remove `man/plotphotos-package.Rd` as well as copying
+the replacement files. Copying over a directory does not remove obsolete files.
 
-Use the fresh-session installation above; do not overwrite a loaded package and
-continue using that same session. Confirm the actual installation:
+Removing an extra topic does **not** establish the cause of a help-server error.
+Description and NEWS use different rendering paths from function help, so they
+can work while a help database or the Rd-to-HTML rendering path fails. The
+reported error has not yet been reproduced in an R runtime for this revision.
+
+Check the actual installed version, library, and topic list:
 
 ```r
 packageVersion("plotphotos")
 find.package("plotphotos")
 .libPaths()
-help("copy_photos_to_plots", package = "plotphotos", help_type = "text")
-help("write_into_image", package = "plotphotos", help_type = "text")
+names(tools::Rd_db("plotphotos"))
+# Expected: copy_photos_to_plots.Rd and write_into_image.Rd
 ```
 
-If text help works but HTML help still fails after a clean restart, report the
-exact console error, `sessionInfo()`, and the library path. Do not assume a
-successful source edit alone proves that a local help-server failure is fixed.
+The source archive has no compiled help database and no prebuilt function HTML.
+A normal package installation rebuilds them. Restart R before installation and
+again afterwards; do not overwrite an installed package and keep using a loaded
+copy in the same session. `--html` builds static pages, but is not by itself a fix
+for the dynamic help server or a damaged/cached installed help database.
+
+To expose the underlying R error instead of the browser's generic message:
+
+```r
+h <- utils::help("write_into_image", package = "plotphotos")
+rd <- getFromNamespace(".getHelpFile", "utils")(h)
+tools::Rd2HTML(
+  rd, out = tempfile(fileext = ".html"),
+  package = find.package("plotphotos"), dynamic = TRUE
+)
+```
+
+This is diagnostic code, not a package dependency on R's internal help API.
+Report the full console error and the actual installed library path. If the
+conversion succeeds but the viewer fails, the next diagnostic is R's help
+request handler and the same tests in a fresh `Rscript --vanilla` process. A
+separate, read-only `plotphotos_help_diagnostic.R` script is supplied with the
+source delivery for this purpose; it is not part of the package.
 
 ## Authorship, licence, and citation
 
 Josef Brůna is the author and maintainer. The existing Institute of Botany
 copyright and MIT licence are retained. AI assistance is disclosed prominently
-above and in the installed package help.
+above, in both function help pages, and in the citation information.
 
 Recommended package citation:
 
 > Brůna, J. (2026). plotphotos: Organize Field Photographs and Annotate Capture
-> Dates. R package version 0.3.0. https://github.com/josefbruna/plotphotos
+> Dates. R package version 0.3.1. https://github.com/josefbruna/plotphotos
 
 Separate acknowledgement of the AI development tool:
 
@@ -304,8 +327,9 @@ with the package citation first. It does not list OpenAI as a package co-author.
 
 The `.github/workflows/R-CMD-check.yaml` workflow runs after a GitHub push or pull
 request and can also be started manually. It is configured for Windows and macOS
-R-release, and Linux R-release, R-devel, and R-oldrel. The Linux release job also
-attempts the PDF manual check; all jobs check installed HTML help. None of these
+R-release, and Linux R-release, R-devel, R-oldrel, and fixed R 4.3.3. The Linux release job also
+attempts the PDF manual check; all jobs check installed help with dynamic
+HTML conversion and the help request handler, without relying on static HTML. None of these
 runs has been launched or observed during this revision.
 
 From a terminal in the parent of the package directory, with dependencies and
@@ -313,7 +337,7 @@ LaTeX installed for the manual:
 
 ```sh
 R CMD build plotphotos
-R CMD check --as-cran plotphotos_0.3.0.tar.gz
+R CMD check --as-cran plotphotos_0.3.1.tar.gz
 ```
 
 The archive produced by `R CMD build` is the CRAN submission source tarball. The

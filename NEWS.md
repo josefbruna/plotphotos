@@ -1,3 +1,20 @@
+# plotphotos 0.3.1
+
+Help-index cleanup and improved diagnostics; runtime validation is still pending.
+
+* Keep exactly two help topics, one per public function. Remove the redundant
+  package overview and its two aliases. Internal helpers remain undocumented.
+* Preserve Josef Brůna's authorship and the extensive ChatGPT acknowledgement in
+  the README, both function pages, and the separate package/tool citations.
+* Test installed help retrieval, text conversion, dynamic HTML conversion, and
+  the real R help request handler rather than only static source rendering.
+* Check the exact exported functions and help topics so duplicate topics cannot
+  silently reappear. Add a fixed Linux R 4.3.3 CI job.
+* Explain that working Description/NEWS pages do not validate function help and
+  that generating static HTML alone cannot establish a fix for a server error.
+* No changes to photo sorting, resizing, stamping, or other processing logic.
+* Remove the obsolete man/plotphotos-package.Rd file from existing checkouts.
+
 # plotphotos 0.3.0
 
 CRAN-preparation release; not yet submitted or runtime-validated in the editing environment.
