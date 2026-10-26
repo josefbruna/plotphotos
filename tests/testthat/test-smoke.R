@@ -19,6 +19,22 @@ test_plots <- function(root) {
   path
 }
 
+test_jpeg_quantization <- function(path) {
+  bytes <- as.integer(readBin(path, "raw", n = file.info(path)$size))
+  position <- 3L
+  tables <- integer()
+  while (position + 3L <= length(bytes)) {
+    marker <- bytes[position + 1L]
+    if (marker == 218L) break
+    size <- bytes[position + 2L] * 256L + bytes[position + 3L]
+    if (marker == 219L) {
+      tables <- c(tables, bytes[seq.int(position + 4L, position + size + 1L)])
+    }
+    position <- position + size + 2L
+  }
+  tables
+}
+
 test_that("every input file is routed, including missing EXIF rows and distant GPS", {
   root <- test_root()
   input <- file.path(root, "input")
@@ -207,4 +223,84 @@ test_that("stamping keeps all files when existing outputs block directory paths"
   expect_equal(tools::md5sum(c(sources, blockers)), original_hashes)
   expect_equal(unname(tools::md5sum(log$output_file)),
                unname(tools::md5sum(log$file)))
+})
+
+test_that("resizing shrinks oriented photos to the requested long side without enlarging", {
+  skip_if_not(capabilities("jpeg"))
+  root <- test_root()
+  input <- file.path(root, "input")
+  dir.create(input)
+  landscape <- file.path(input, "landscape.jpg")
+  portrait <- file.path(input, "portrait.jpg")
+  small <- file.path(input, "small.jpg")
+  pixels <- array(0.1, c(1500, 2500, 3))
+  pixels[1:750, 1:1250, 1] <- 0.9
+  pixels[1:750, 1251:2500, 2] <- 0.9
+  pixels[751:1500, 1:1250, 3] <- 0.9
+  jpeg::writeJPEG(pixels, landscape)
+  rm(pixels)
+  bytes <- readBin(landscape, "raw", n = file.info(landscape)$size)
+  # Minimal little-endian TIFF containing EXIF Orientation=6 (90 degrees CW).
+  tiff <- as.raw(c(73, 73, 42, 0, 8, 0, 0, 0, 1, 0, 18, 1, 3, 0,
+                   1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0))
+  app1 <- c(as.raw(c(255, 225, 0, 34)), charToRaw("Exif"), as.raw(c(0, 0)), tiff)
+  writeBin(c(bytes[1:2], app1, bytes[-(1:2)]), portrait)
+  jpeg::writeJPEG(array(0.7, c(120, 200, 3)), small)
+  hashes <- tools::md5sum(c(landscape, portrait, small))
+
+  sized <- suppressMessages(write_into_image(input, file.path(root, "default")))
+  images <- lapply(sized$output_file[match(c(landscape, portrait, small), sized$file)], jpeg::readJPEG)
+  expect_equal(lapply(images, dim), list(c(1200L, 2000L, 3L), c(2000L, 1200L, 3L),
+                                        c(120L, 200L, 3L)))
+  expect_gt(images[[1]][20, 20, 1], images[[1]][20, 20, 3])
+  expect_gt(images[[2]][20, 20, 3], images[[2]][20, 20, 1])
+  rm(images)
+
+  custom <- suppressMessages(write_into_image(input, file.path(root, "custom"), long_side = 1000))
+  sizes <- lapply(custom$output_file[match(c(landscape, portrait, small), custom$file)],
+                   function(path) dim(jpeg::readJPEG(path)))
+  expect_equal(sizes, list(c(600L, 1000L, 3L), c(1000L, 600L, 3L), c(120L, 200L, 3L)))
+
+  native <- suppressMessages(write_into_image(input, file.path(root, "native"),
+                                               resize = FALSE, long_side = 50))
+  sizes <- lapply(native$output_file[match(c(landscape, portrait, small), native$file)],
+                   function(path) dim(jpeg::readJPEG(path)))
+  expect_equal(sizes, list(c(1500L, 2500L, 3L), c(2500L, 1500L, 3L), c(120L, 200L, 3L)))
+  expect_equal(tools::md5sum(c(landscape, portrait, small)), hashes)
+})
+
+test_that("JPEG quality changes the encoded quantization tables", {
+  skip_if_not(capabilities("jpeg"))
+  root <- test_root()
+  input <- file.path(root, "input")
+  dir.create(input)
+  jpeg::writeJPEG(array(0.6, c(120, 200, 3)), file.path(input, "photo.jpg"))
+  low <- suppressMessages(write_into_image(input, file.path(root, "low"),
+                                            resize = FALSE, quality = 25))
+  high <- suppressMessages(write_into_image(input, file.path(root, "high"),
+                                             resize = FALSE, quality = 95))
+  expect_equal(low$status, "stamped")
+  expect_equal(high$status, "stamped")
+  low_tables <- test_jpeg_quantization(low$output_file)
+  high_tables <- test_jpeg_quantization(high$output_file)
+  expect_gt(length(low_tables), 64L)
+  expect_equal(length(low_tables), length(high_tables))
+  expect_lt(sum(high_tables), sum(low_tables))
+})
+
+test_that("invalid resize and quality parameters fail before creating outputs", {
+  root <- test_root()
+  input <- file.path(root, "input")
+  output <- file.path(root, "output")
+  dir.create(input)
+  invalid <- list(list(resize = NA), list(resize = "TRUE"),
+    list(long_side = 0), list(long_side = Inf), list(long_side = 1000.5),
+    list(quality = 0), list(quality = 101), list(quality = 80.5),
+    list(quality = NA), list(quality = c(50, 80)))
+  for (arguments in invalid) {
+    expect_error(do.call(write_into_image,
+      c(list(input_folder = input, output_folder = output), arguments)),
+      "resize|long_side|quality")
+  }
+  expect_false(dir.exists(output))
 })

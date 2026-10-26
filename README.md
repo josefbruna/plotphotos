@@ -1,12 +1,12 @@
-# plotphotos 0.2.0
+# plotphotos 0.2.1
 
-Sort files by plot locality and write capture dates onto JPEG copies. The package
+Sort files by plot locality, resize JPEG copies, and write capture dates onto them. The package
 has two public functions:
 
 - `copy_photos_to_plots()` copies and sorts files using JPEG GPS coordinates,
   plot IDs in parent folder names, or plot IDs in filenames.
-- `write_into_image()` writes a date in the bottom-right corner of JPEG copies,
-  keeping the input folder structure.
+- `write_into_image()` resizes JPEG copies and writes a date in the bottom-right
+  corner, keeping the input folder structure.
 
 Both functions keep the input originals and avoid overwriting existing output files.
 
@@ -17,12 +17,13 @@ Both functions keep the input originals and avoid overwriting existing output fi
 # install.packages("remotes")
 remotes::install_github("josefbruna/plotphotos", upgrade = "never", force = TRUE)
 library(plotphotos)
-packageVersion("plotphotos") # 0.2.0 after this version is on GitHub
+packageVersion("plotphotos") # 0.2.1 after this version is on GitHub
 ```
 
 The sorting function uses `sf`, `units`, and `exifr` (ExifTool through `exifr`).
-The new date-writing function uses `jpeg` and R's graphics devices; it does not
-call ExifTool or ImageMagick.
+The date-writing function uses `jpeg`, `magick`, and R's graphics devices.
+The `magick` package supplies ImageMagick's resizing library; the function does
+not call an external ExifTool or ImageMagick command-line program.
 
 ## 1. Copy and sort files
 
@@ -103,20 +104,46 @@ Keep the log with its output folders for this repeat-run behavior. Input and
 output must be different folders. An output folder nested under an input folder
 is supported and excluded from scanning.
 
-## 2. Write dates into JPEG copies
+## 2. Resize JPEG copies and write dates
 
 ```r
 stamp_log <- write_into_image(
   input_folder  = "plotphotos_output",
   output_folder = "plotphotos_dated",
-  date_format   = "%Y-%m-%d"
+  date_format   = "%Y-%m-%d",
+  resize        = TRUE,
+  long_side     = 2000,
+  quality       = 80
 )
 ```
 
-The function scans recursively, writes black date text with a white outline in
-the bottom-right corner, and saves JPEG copies at quality 75. Relative subfolders
-are retained, so `correct/ABC.jpg` becomes `correct/ABC.jpg` under the new output
-folder. Other file formats are copied unchanged.
+The function scans recursively, applies EXIF orientation, reduces larger images
+using **Lanczos resampling**, and then writes black date text with a white outline
+in the bottom-right corner. The date is rendered at the final image size to keep
+the text sharp. The image stays in memory until the final JPEG is encoded at the
+chosen quality; there is no intermediate JPEG recompression.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `resize` | `TRUE` | Resize images whose longer side exceeds `long_side`. Set to `FALSE` to retain their dimensions after orientation is applied. |
+| `long_side` | `2000` | Maximum longer-side length in pixels; a positive whole number. Aspect ratio is preserved, subject to whole-pixel rounding. |
+| `quality` | `80` | JPEG encoding quality from 1 to 100, as a whole number. Applies even with `resize = FALSE`. |
+
+Smaller images are never enlarged. For example, a 6000 x 4000 image becomes
+2000 x 1333 pixels by default, while a 1200 x 800 image stays 1200 x 800.
+To keep the full resolution and use a different JPEG quality:
+
+```r
+write_into_image(
+  input_folder = "plotphotos_output",
+  output_folder = "plotphotos_full_size_dated",
+  resize = FALSE,
+  quality = 90
+)
+```
+
+Relative subfolders are retained, so `correct/ABC.jpg` becomes `correct/ABC.jpg`
+under the new output folder. Other file formats are copied unchanged.
 
 The date is selected in this order:
 
@@ -141,9 +168,10 @@ preserves modification time. EXIF dates are used as recorded, without timezone c
 | `"%Y-%m-%d %H:%M"` | `2026-10-26 14:30` |
 
 EXIF orientation is applied to the output pixels and reset to normal to avoid
-double rotation. The original EXIF APP1 segment is retained where possible.
-Other metadata blocks, embedded thumbnails, and image-dimension tags are not
-regenerated. JPEG output is recompressed, so input originals should be retained.
+double rotation. The original EXIF APP1 segment is retained where possible, and
+existing standard EXIF width/height tags are updated to match the output size.
+Other metadata blocks and embedded thumbnails are not regenerated. JPEG output
+is recompressed, so input originals should be retained.
 
 JPEGs that cannot be stamped, including unsupported CMYK images, are copied
 unchanged to `unprocessed/` under the output folder, preserving their relative
@@ -155,11 +183,18 @@ the log for the current run. Existing
 output filenames receive a numeric suffix instead of being overwritten. A required
 output subfolder also receives a suffix if an existing file blocks its name. Calling
 the function again creates additional copies. Use a fresh output folder when
-changing the date format. The input and output folders must differ; a nested
+changing the date format, size, or quality. The input and output folders must differ; a nested
 output folder is excluded from scanning. The output folder cannot contain the input folder.
 
 For the full argument and return-value details, use
 `?copy_photos_to_plots` and `?write_into_image`.
+
+## Changes in 0.2.1
+
+- Add `resize = TRUE`, `long_side = 2000`, and `quality = 80` to `write_into_image()`.
+- Resize with Lanczos before drawing the date; preserve aspect ratio and never enlarge smaller images.
+- Update existing standard EXIF dimension tags after resizing or orientation changes.
+- Add the `magick` dependency; existing three-argument calls remain valid.
 
 ## Changes in 0.2.0
 

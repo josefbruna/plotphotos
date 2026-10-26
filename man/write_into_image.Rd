@@ -2,9 +2,16 @@
 % Please edit documentation in R/write_into_image.R
 \name{write_into_image}
 \alias{write_into_image}
-\title{Write capture dates into JPEG copies}
+\title{Resize JPEG copies and write capture dates}
 \usage{
-write_into_image(input_folder, output_folder, date_format = "\%Y-\%m-\%d")
+write_into_image(
+  input_folder,
+  output_folder,
+  date_format = "\%Y-\%m-\%d",
+  resize = TRUE,
+  long_side = 2000,
+  quality = 80
+)
 }
 \arguments{
 \item{input_folder}{Input folder to scan recursively.}
@@ -16,6 +23,16 @@ is excluded from scanning.}
 \item{date_format}{A single non-empty date/time format accepted by
 \code{\link[base:strptime]{base::strftime()}}, such as \code{"\%Y-\%m-\%d"} or
 \code{"\%d.\%m.\%Y \%H:\%M"}. Defaults to \code{"\%Y-\%m-\%d"}.}
+
+\item{resize}{Logical; reduce images larger than \code{long_side} before stamping.
+Defaults to \code{TRUE}. Smaller images are never enlarged. Set to \code{FALSE} to
+keep the original pixel dimensions after applying EXIF orientation.}
+
+\item{long_side}{Positive whole number giving the maximum length of the longer
+image side in pixels when \code{resize = TRUE}. Defaults to \code{2000}.}
+
+\item{quality}{JPEG quality as a whole number from 1 to 100. Defaults to \code{80}.
+This applies whether or not resizing is enabled.}
 }
 \value{
 Invisibly returns a data frame for the current run, with columns
@@ -25,8 +42,8 @@ Status is \code{stamped}, \code{copied} (another file type),
 \code{unprocessed} (failed JPEG retained), or \code{failed} (no output copy).
 }
 \description{
-Recursively writes capture dates into the bottom-right corner of JPEG/JPG
-copies, using black text with a white halo. Original input files are unchanged.
+Recursively resizes JPEG/JPG copies and writes capture dates into their
+bottom-right corner, using black text with a white halo. Original input files are unchanged.
 Other files are copied unchanged, and relative subfolders are retained.
 }
 \details{
@@ -39,12 +56,17 @@ their fallback date when their modification time was preserved. File ctime
 These file times are not guaranteed capture dates; the log identifies their use.
 If no date is available, the stamp reads \code{"unknown date"}.
 
-JPEGs are re-encoded at quality 75. EXIF orientation is applied to the pixels
-before stamping, and the retained EXIF Orientation tag is reset to 1. The
-original EXIF APP1 segment is retained on a best-effort basis; other metadata
-(including ICC/XMP), embedded thumbnails, and dimension tags are not rebuilt.
+EXIF orientation is applied first. When resizing is needed, the image is
+reduced with \code{magick::image_resize()} using the Lanczos filter, preserving
+its aspect ratio (subject to whole-pixel rounding). The date is drawn at the
+final size, then the JPEG is encoded once at the requested \code{quality}.
+The original EXIF APP1 segment is retained on a best-effort basis. Its
+Orientation tag is reset to 1, and existing standard width/height tags are
+updated to the output dimensions. Other metadata (including ICC/XMP) and
+embedded thumbnails are not rebuilt.
 CMYK JPEGs are retained as unprocessed originals instead of being rendered
-with incorrect colours. No ImageMagick or external ExifTool is needed.
+with incorrect colours. Resizing uses the \code{magick} R package; no external
+ExifTool or ImageMagick command-line program is called.
 
 Existing output files are never overwritten; numbered suffixes are added as
 needed. If an existing file blocks a required output subfolder, that subfolder
@@ -61,7 +83,9 @@ An empty input folder produces an empty result without creating output folders.
 \examples{
 \dontrun{
 write_into_image("plotphotos_output", "dated_photos")
-write_into_image("photos", "dated_photos", date_format = "\%d.\%m.\%Y \%H:\%M")
+write_into_image("photos", "dated_photos", date_format = "\%d.\%m.\%Y \%H:\%M",
+                 resize = TRUE, long_side = 2000, quality = 80)
+write_into_image("photos", "full_size_dated", resize = FALSE, quality = 90)
 }
 }
 \seealso{

@@ -1,16 +1,17 @@
 Package: plotphotos
 Type: Package
 Title: Sort Plot Photos and Stamp Capture Dates
-Version: 0.2.0
+Version: 0.2.1
 Authors@R: c(
     person("Josef", "Brůna", email = "josef.bruna@ibot.cas.cz", role = c("aut", "cre"))
   )
 Description: Copies files from one or more input folders into plot-based categories,
     using JPEG GPS metadata, filename prefixes, or parent folder names. Files without
     usable coordinates or a plot match are retained, and category folders are created
-    only when needed. A separate function writes capture dates onto JPEG copies while
-    preserving the input folder structure, applying EXIF orientation, and retaining
-    original files. Output naming avoids overwriting existing files.
+    only when needed. A separate function resizes JPEG copies using Lanczos
+    resampling and writes capture dates with configurable size and JPEG quality,
+    while preserving the input folder structure, applying EXIF orientation, and
+    retaining original files. Output naming avoids overwriting existing files.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Imports:
@@ -18,6 +19,7 @@ Imports:
     exifr,
     units,
     jpeg,
+    magick,
     graphics,
     grDevices
 Suggests:

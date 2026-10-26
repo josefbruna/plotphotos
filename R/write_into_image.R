@@ -1,7 +1,7 @@
-#' Write capture dates into JPEG copies
+#' Resize JPEG copies and write capture dates
 #'
-#' Recursively writes capture dates into the bottom-right corner of JPEG/JPG
-#' copies, using black text with a white halo. Original input files are unchanged.
+#' Recursively resizes JPEG/JPG copies and writes capture dates into their
+#' bottom-right corner, using black text with a white halo. Original input files are unchanged.
 #' Other files are copied unchanged, and relative subfolders are retained.
 #'
 #' @param input_folder Input folder to scan recursively.
@@ -11,6 +11,13 @@
 #' @param date_format A single non-empty date/time format accepted by
 #'   [base::strftime()], such as `"%Y-%m-%d"` or
 #'   `"%d.%m.%Y %H:%M"`. Defaults to `"%Y-%m-%d"`.
+#' @param resize Logical; reduce images larger than `long_side` before stamping.
+#'   Defaults to `TRUE`. Smaller images are never enlarged. Set to `FALSE` to
+#'   keep the original pixel dimensions after applying EXIF orientation.
+#' @param long_side Positive whole number giving the maximum length of the longer
+#'   image side in pixels when `resize = TRUE`. Defaults to `2000`.
+#' @param quality JPEG quality as a whole number from 1 to 100. Defaults to `80`.
+#'   This applies whether or not resizing is enabled.
 #'
 #' @details
 #' Dates are taken from the first valid EXIF DateTimeOriginal, DateTimeDigitized
@@ -22,12 +29,17 @@
 #' These file times are not guaranteed capture dates; the log identifies their use.
 #' If no date is available, the stamp reads \code{"unknown date"}.
 #'
-#' JPEGs are re-encoded at quality 75. EXIF orientation is applied to the pixels
-#' before stamping, and the retained EXIF Orientation tag is reset to 1. The
-#' original EXIF APP1 segment is retained on a best-effort basis; other metadata
-#' (including ICC/XMP), embedded thumbnails, and dimension tags are not rebuilt.
+#' EXIF orientation is applied first. When resizing is needed, the image is
+#' reduced with `magick::image_resize()` using the Lanczos filter, preserving
+#' its aspect ratio (subject to whole-pixel rounding). The date is drawn at the
+#' final size, then the JPEG is encoded once at the requested `quality`.
+#' The original EXIF APP1 segment is retained on a best-effort basis. Its
+#' Orientation tag is reset to 1, and existing standard width/height tags are
+#' updated to the output dimensions. Other metadata (including ICC/XMP) and
+#' embedded thumbnails are not rebuilt.
 #' CMYK JPEGs are retained as unprocessed originals instead of being rendered
-#' with incorrect colours. No ImageMagick or external ExifTool is needed.
+#' with incorrect colours. Resizing uses the `magick` R package; no external
+#' ExifTool or ImageMagick command-line program is called.
 #'
 #' Existing output files are never overwritten; numbered suffixes are added as
 #' needed. If an existing file blocks a required output subfolder, that subfolder
@@ -50,17 +62,32 @@
 #' @examples
 #' \dontrun{
 #' write_into_image("plotphotos_output", "dated_photos")
-#' write_into_image("photos", "dated_photos", date_format = "%d.%m.%Y %H:%M")
+#' write_into_image("photos", "dated_photos", date_format = "%d.%m.%Y %H:%M",
+#'                  resize = TRUE, long_side = 2000, quality = 80)
+#' write_into_image("photos", "full_size_dated", resize = FALSE, quality = 90)
 #' }
 #' @export
 write_into_image <- function(input_folder, output_folder,
-                             date_format = "%Y-%m-%d") {
+                             date_format = "%Y-%m-%d",
+                             resize = TRUE, long_side = 2000, quality = 80) {
   for (arg in c("input_folder", "output_folder", "date_format")) {
     value <- get(arg)
     if (!is.character(value) || length(value) != 1L ||
         is.na(value) || !nzchar(value)) {
       stop(arg, " must be a single non-empty character string.", call. = FALSE)
     }
+  }
+  if (!is.logical(resize) || length(resize) != 1L || is.na(resize)) {
+    stop("resize must be TRUE or FALSE.", call. = FALSE)
+  }
+  if (!is.numeric(long_side) || length(long_side) != 1L ||
+      !is.finite(long_side) || long_side < 1 ||
+      long_side > .Machine$integer.max || long_side != floor(long_side)) {
+    stop("long_side must be a positive whole number of pixels.", call. = FALSE)
+  }
+  if (!is.numeric(quality) || length(quality) != 1L || !is.finite(quality) ||
+      quality < 1 || quality > 100 || quality != floor(quality)) {
+    stop("quality must be a whole number from 1 to 100 (for example, 80).", call. = FALSE)
   }
   if (!dir.exists(input_folder)) stop("Input folder does not exist: ", input_folder)
   input_folder <- normalizePath(input_folder, winslash = "/", mustWork = TRUE)
@@ -136,7 +163,8 @@ write_into_image <- function(input_folder, output_folder,
           }
         }
         stamp_text <- if (is.na(dt)) "unknown date" else format(dt, date_format)
-        .stamp_write(src, dest, stamp_text, ex$orientation, ex$app1)
+        .stamp_write(src, dest, stamp_text, ex$orientation, ex$app1,
+                     resize = resize, long_side = long_side, quality = quality)
       } else {
         .stamp_copy(src, dest)
       }
@@ -350,21 +378,47 @@ write_into_image <- function(input_folder, output_folder,
     img)
 }
 
-.stamp_reset_orientation <- function(app1) {
+.stamp_resize <- function(img, long_side) {
+  original <- magick::image_read(img)
+  on.exit(magick::image_destroy(original), add = TRUE)
+  resized <- magick::image_resize(original,
+    geometry = sprintf("%dx%d>", as.integer(long_side), as.integer(long_side)),
+    filter = "Lanczos")
+  on.exit(magick::image_destroy(resized), add = TRUE)
+  grDevices::as.raster(resized)
+}
+
+.stamp_reset_orientation <- function(app1, width = NULL, height = NULL) {
   if (is.null(app1) || length(app1) < 18) return(app1)
   tiff <- app1[11:length(app1)]
   little <- identical(tiff[1:2], charToRaw("II"))
   if (!little && !identical(tiff[1:2], charToRaw("MM"))) return(app1)
   if (.stamp_uint(tiff, 3L, 2L, little) != 42) return(app1)
-  tag <- .stamp_tag(tiff, .stamp_uint(tiff, 5L, 4L, little) + 1, 274L, little)
-  if (!is.null(tag) && tag$type == 3 && tag$count == 1) {
-    app1[(10 + tag$pos):(13 + tag$pos)] <-
-      as.raw(if (little) c(1, 0, 0, 0) else c(0, 1, 0, 0))
+  ifd0 <- .stamp_uint(tiff, 5L, 4L, little) + 1
+  patch <- function(offset, id, value) {
+    if (is.null(value)) return(invisible(NULL))
+    tag <- .stamp_tag(tiff, offset, id, little)
+    if (is.null(tag) || !tag$type %in% c(3, 4) || tag$count != 1) return(invisible(NULL))
+    size <- if (tag$type == 3) 2L else 4L
+    if (!is.finite(value) || value < 0 || value >= 256^size) return(invisible(NULL))
+    powers <- if (little) 0:(size - 1L) else (size - 1L):0
+    bytes <- as.raw(floor(value / 256^powers) %% 256)
+    app1[(10 + tag$pos):(13 + tag$pos)] <<- c(bytes, raw(4L - size))
+    invisible(NULL)
+  }
+  patch(ifd0, 274L, 1L) # Orientation
+  patch(ifd0, 256L, width) # ImageWidth
+  patch(ifd0, 257L, height) # ImageLength
+  exif <- .stamp_tag(tiff, ifd0, 34665L, little)
+  if (!is.null(exif) && exif$type == 4 && exif$count == 1) {
+    patch(exif$value + 1, 40962L, width) # PixelXDimension
+    patch(exif$value + 1, 40963L, height) # PixelYDimension
   }
   app1
 }
 
-.stamp_write <- function(infile, outfile, label, orientation, app1) {
+.stamp_write <- function(infile, outfile, label, orientation, app1,
+                          resize = TRUE, long_side = 2000, quality = 80) {
   img <- jpeg::readJPEG(infile)
   dims <- dim(img)
   if (length(dims) == 2L) img <- array(rep(img, 3L), dim = c(dims, 3L))
@@ -372,8 +426,13 @@ write_into_image <- function(input_folder, output_folder,
     stop("Unsupported JPEG colour model (such as CMYK); original retained.")
   }
   img <- .stamp_orient(img, orientation)
-  h <- dim(img)[1L]
-  w <- dim(img)[2L]
+  bitmap <- if (resize && max(dim(img)[1:2]) > long_side) {
+    .stamp_resize(img, long_side)
+  } else {
+    grDevices::as.raster(img)
+  }
+  h <- nrow(bitmap)
+  w <- ncol(bitmap)
   tmp <- tempfile("plotphotos_stamp_", fileext = ".jpg")
   device <- NA_integer_
   on.exit({
@@ -385,18 +444,18 @@ write_into_image <- function(input_folder, output_folder,
   opened <- FALSE
   if (isTRUE(capabilities("cairo"))) {
     opened <- tryCatch({
-      grDevices::jpeg(tmp, width = w, height = h, units = "px", quality = 75,
+      grDevices::jpeg(tmp, width = w, height = h, units = "px", quality = quality,
                       pointsize = 12, type = "cairo")
       TRUE
     }, error = function(e) FALSE)
   }
   if (!opened) grDevices::jpeg(tmp, width = w, height = h, units = "px",
-                               quality = 75, pointsize = 12)
+                               quality = quality, pointsize = 12)
   device <- grDevices::dev.cur()
   graphics::par(mar = c(0, 0, 0, 0), xaxs = "i", yaxs = "i")
   graphics::plot.new()
   graphics::plot.window(xlim = c(0, w), ylim = c(0, h), asp = 1)
-  graphics::rasterImage(grDevices::as.raster(img), 0, 0, w, h, interpolate = FALSE)
+  graphics::rasterImage(bitmap, 0, 0, w, h, interpolate = FALSE)
   long <- max(w, h)
   margin <- min(max(10, round(long * 0.012)), floor(min(w, h) / 10))
   cex <- max(18, round(long * 0.032)) / 12
@@ -417,7 +476,7 @@ write_into_image <- function(input_folder, output_folder,
   device <- NA_integer_
   if (!is.null(app1)) {
     bytes <- readBin(tmp, "raw", n = file.info(tmp)$size)
-    app1 <- .stamp_reset_orientation(app1)
+    app1 <- .stamp_reset_orientation(app1, width = w, height = h)
     insert <- 2L
     if (length(bytes) >= 6 && identical(bytes[3:4], as.raw(c(255, 224)))) {
       end <- .stamp_uint(bytes, 5L, 2L, little = FALSE) + 4
