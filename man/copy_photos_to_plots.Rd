@@ -2,7 +2,8 @@
 % Please edit documentation in R/copy_photos_to_plots.R
 \name{copy_photos_to_plots}
 \alias{copy_photos_to_plots}
-\title{Copy and sort files by nearest plot or locality name}
+\encoding{UTF-8}
+\title{Copy and sort field files by GPS, plot identifier, or folder}
 \usage{
 copy_photos_to_plots(
   img_roots,
@@ -26,98 +27,141 @@ copy_photos_to_plots(
 )
 }
 \arguments{
-\item{img_roots}{Character vector of input root folders, scanned recursively
-including hidden files and folders.}
+\item{img_roots}{Character vector of existing input root folders. Files are scanned recursively, including hidden files and folders.}
 
-\item{out_root}{Output root folder.}
+\item{out_root}{A single output folder. It cannot equal or contain an input root. An output folder inside an input root is allowed and is excluded from scanning.}
 
-\item{plots_path}{Path to a GeoPackage (.gpkg) or Shapefile (.shp) with plots.}
+\item{plots_path}{Path to a GeoPackage or Shapefile containing one POINT geometry per plot and a defined coordinate reference system.}
 
-\item{plots_layer}{Layer name inside a GeoPackage; required if it has multiple layers.}
+\item{plots_layer}{Layer name for a GeoPackage. May be \code{NULL} only when it has exactly one layer. Ignored for other supported vector files.}
 
-\item{match_field}{Field used for matching files without GPS by name or folder.}
+\item{match_field}{Column used to match immediate parent folders or filename prefixes. Matching ignores case. Missing or empty values do not match.}
 
-\item{name_field}{Field used for output filename stems. Defaults to \code{match_field}.}
+\item{name_field}{Column used for output filename stems. Defaults to \code{match_field}. Empty values fall back to the corresponding match value; if both are missing, the original filename is retained.}
 
-\item{threshold_m}{Non-negative distance in metres separating correct and far files.}
+\item{threshold_m}{Finite, non-negative distance in metres. A GPS photograph is within a plot threshold when its distance is less than or equal to this value.}
 
-\item{far_max_m}{Maximum distance in metres for renaming a GPS file to its nearest
-plot. Must be at least \code{threshold_m}; use \code{Inf} for no limit. More
-distant files are copied to \code{sub_far} with their original filename.}
+\item{far_max_m}{Maximum distance in metres for renaming a distant photograph after its nearest plot. Must be at least \code{threshold_m}; \code{Inf} removes this naming limit. More distant files are still copied to \code{sub_far}, with their original filename stem.}
 
-\item{names}{Logical; enable filename-prefix matching for files without GPS.}
+\item{names}{A single logical value. Enable filename-prefix matching when usable JPEG GPS is unavailable.}
 
-\item{folders}{Logical; enable parent-folder matching for files without GPS.}
+\item{folders}{A single logical value. Enable immediate-parent-folder matching when usable JPEG GPS is unavailable. Folder matches take priority over filename matches.}
 
-\item{sub_correct}{Relative subfolder for one plot within \code{threshold_m}.}
+\item{sub_correct}{Relative category directory for exactly one plot within the distance threshold.}
 
-\item{sub_far}{Relative subfolder for GPS files beyond \code{threshold_m}, including
-files beyond \code{far_max_m}.}
+\item{sub_far}{Relative category directory for photographs beyond the distance threshold, including those beyond \code{far_max_m}.}
 
-\item{sub_multiple}{Relative subfolder for multiple plots within \code{threshold_m}.}
+\item{sub_multiple}{Relative category directory for multiple plots within the distance threshold.}
 
-\item{sub_no_gps}{Relative subfolder for files without GPS and without an enabled match.}
+\item{sub_no_gps}{Relative category directory for files without usable GPS and without an enabled folder or filename match.}
 
-\item{sub_named}{Relative subfolder for filename-rule matches.}
+\item{sub_named}{Relative category directory for filename matches.}
 
-\item{sub_folder}{Relative subfolder for parent-folder-rule matches.}
+\item{sub_folder}{Relative category directory for parent-folder matches.}
 
-\item{write_log_csv}{Output CSV path, defaulting to rename_log.csv under \code{out_root}.}
+\item{write_log_csv}{CSV log path. By default, \code{rename_log.csv} under \code{out_root}. It must not be inside an input root unless it is also inside the excluded output tree. Existing logs must be compatible CSV files; they are not blindly overwritten.}
 
-\item{verbose}{Logical; print progress and a summary.}
+\item{verbose}{A single logical value. Print progress and a summary when \code{TRUE}.}
 }
 \value{
-Invisibly returns the cumulative log data.frame. Columns are
-\code{source_file}, \code{new_file}, \code{lon}, \code{lat}, \code{min_dist_m},
-\code{ids_used}, \code{status}, and \code{copy_ok}. Failed copies have a missing
-destination and \code{copy_ok = FALSE}. If there is no new work, the existing
-log is returned, or an empty log with the same columns.
+Invisibly returns the cumulative log data frame, including previous runs.
+Its columns are:
+\describe{
+\item{source_file}{Input file path.}
+\item{new_file}{Destination path, or \code{NA} on copy failure.}
+\item{lon, lat}{Read JPEG GPS coordinates, or \code{NA} when absent. Invalid
+values may remain in the log but are not used for spatial assignment.}
+\item{min_dist_m}{Nearest-plot distance, or \code{NA} without usable GPS.}
+\item{ids_used}{Plot values used for renaming, or \code{NA} when keeping the original name.}
+\item{status}{One of \code{correct_within_threshold},
+\code{multiple_within_threshold}, \code{far_over_threshold},
+\code{gps_over_max_distance}, \code{no_gps_folder}, \code{no_gps_named},
+or \code{no_gps}. This describes routing, not whether copying succeeded.}
+\item{copy_ok}{Logical copy-success flag.}
+}
+When there is no new work, the existing log, or a zero-row data frame with the
+same columns, is returned without creating output directories.
 }
 \description{
-Copies every regular file from one or more input folders into a flattened
-output structure. JPEG/JPG photographs with valid EXIF coordinates are assigned
-to the nearest plot. Files without usable GPS, including other file formats,
-are matched by parent folder or filename when enabled; unmatched files are
-copied to the no-GPS folder. Input files are never moved or overwritten.
+Copy files into plot-based categories without changing the originals. JPEG GPS coordinates are used when available. Files without usable GPS, including non-image files, are retained using folder matching, filename matching, or an unmatched category.
 }
 \details{
-The sorting order is:
-\itemize{
-\item Valid JPEG GPS: use the correct, multiple, or far folder. Files farther than
-\code{far_max_m} are still copied to the far folder, but keep their original
-filename rather than being renamed to a possibly unrelated plot.
-\item No usable GPS and \code{folders = TRUE}: match the immediate parent folder
-to \code{match_field}, ignoring case.
-\item Otherwise, with \code{names = TRUE}: match the filename stem to
-\code{match_field}, ignoring case. An ID must end the stem or be followed by
-an underscore, space, or hyphen; the longest matching ID wins.
-\item Otherwise: copy to the no-GPS folder with the original filename.
+Each regular input file is assigned to one category. Only JPG/JPEG files
+are inspected for GPS metadata, through \pkg{exifr}. A missing ExifTool backend,
+unreadable metadata, absent GPS fields, or invalid coordinates does not discard
+files: folder, filename, and no-GPS rules are used instead. Metadata-read errors
+produce a warning so that a missing GPS backend cannot silently look like a
+successful spatial assignment.
+
+The assignment order is:
+\enumerate{
+\item Valid JPEG GPS: choose the nearest plot and count plots within
+\code{threshold_m}. Use \code{sub_multiple} for multiple candidates,
+\code{sub_correct} for one candidate, and \code{sub_far} otherwise.
+\item Without usable GPS, try an exact immediate-parent-folder match when
+\code{folders = TRUE}.
+\item Otherwise, try a filename-prefix match when \code{names = TRUE}.
+An ID must end the filename stem or be followed by an underscore, space, or
+hyphen. The longest matching ID wins.
+\item Otherwise, copy to \code{sub_no_gps}.
 }
 
-Folder matches take precedence over filename matches. Matched files are
-renamed using \code{name_field}, falling back to \code{match_field} when empty.
-JPEG extensions are normalized to .jpg; other extensions are preserved.
-Existing destination files are never overwritten: numeric suffixes resolve
-collisions. A source already recorded as successfully copied is skipped only
-while its logged destination still exists. Missing or unreadable EXIF never
-prevents a file from being copied.
+Distances are computed in metres on longitude/latitude coordinates using
+\pkg{sf}'s spherical geometry engine. This avoids relying on one UTM zone.
+The caller's spherical-geometry setting is restored on return or error.
+Duplicate matching IDs, ignoring case, generate a warning; folder/name lookup
+uses the first occurrence. Empty point geometries cannot be GPS candidates.
 
-Category folders are created only when needed. A nested output tree and the
-log file are excluded from input scanning. Input roots cannot equal or be
-inside the output root. Source modification times are preserved when copying.
+Within each category, files are flattened into one directory. Multiple candidate
+plot names are joined in nearest-first order. Unsafe filename characters and
+Windows reserved names are sanitized; very long stems are shortened. Numeric
+suffixes avoid existing filenames. JPEG extensions become \code{.jpg}; other
+extensions are retained. Modification times are preserved where supported.
+}
+\section{File safety and repeated runs}{
+Input files are never moved or overwritten. Category directories are created
+only when a copy is attempted and are removed if newly created, empty, and the
+copy fails. Category paths must be distinct, non-overlapping, and below the
+output root. The output tree is pruned before input traversal. Symbolic-link
+cycles are avoided; linked targets outside all input roots are skipped with a
+warning. Each encountered physical file path is processed once per run.
+
+A previously successful source path is skipped only while its logged destination
+still exists. This is path-based bookkeeping, not content synchronization:
+changed source contents at the same path are not automatically detected. Use a
+fresh output directory and log to reprocess replaced inputs. Previously failed
+copies can be retried. Existing ASCII/UTF-8 logs from version 0.2.x remain usable.
+
+Logs are written to a temporary file before replacement, with the previous log
+retained until replacement succeeds. An interrupted replacement may leave a
+hidden backup CSV alongside the log. Do not run concurrent writers against the
+same output directory or log. I/O failures are reported rather than treated as
+successful copies; an input file cannot be copied when the operating system
+refuses access.
 }
 \examples{
-\dontrun{
-copy_photos_to_plots(
-  img_roots = c("photos/site_A", "photos/site_B"),
-  out_root = "sorted_photos",
-  plots_path = "active.gpkg",
-  plots_layer = "localities_active",
-  threshold_m = 30,
-  far_max_m = 100
-)
-}
+(function() {
+  root <- tempfile("plotphotos-example-")
+  dir.create(root)
+  on.exit(unlink(root, recursive = TRUE))
+  input <- file.path(root, "input")
+  dir.create(file.path(input, "P01"), recursive = TRUE)
+  # Non-image files also demonstrate routing without an ExifTool installation.
+  writeLines("Field notes", file.path(input, "P01", "notes.txt"))
+  writeLines("Unmatched file", file.path(input, "other.txt"))
+  plots <- sf::st_as_sf(
+    data.frame(locality_id = "P01", lon = 14.5, lat = 50.0),
+    coords = c("lon", "lat"), crs = 4326
+  )
+  gpkg <- file.path(root, "plots.gpkg")
+  sf::st_write(plots, gpkg, layer = "plots", quiet = TRUE)
+  log <- copy_photos_to_plots(
+    input, file.path(root, "sorted"), gpkg,
+    plots_layer = "plots", verbose = FALSE
+  )
+  log[, c("status", "copy_ok")]
+})()
 }
 \seealso{
-\code{\link{write_into_image}}
+\code{\link{write_into_image}}, \code{\link{plotphotos-package}}
 }

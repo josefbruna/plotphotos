@@ -1,71 +1,107 @@
-#' Resize JPEG copies and write capture dates
+#' Resize JPEG copies and annotate capture dates
 #'
-#' Recursively resizes JPEG/JPG copies and writes capture dates into their
-#' bottom-right corner, using black text with a white halo. Original input files are unchanged.
-#' Other files are copied unchanged, and relative subfolders are retained.
+#' Create JPEG copies with a date in the bottom-right corner. Optionally resize larger photographs before annotation. Original inputs remain unchanged, non-JPEG files are copied without alteration, and the relative folder structure is retained.
 #'
-#' @param input_folder Input folder to scan recursively.
-#' @param output_folder Folder for stamped copies and the processing log. It must
-#'   differ from the input folder and must not contain it. A nested output folder
-#'   is excluded from scanning.
-#' @param date_format A single non-empty date/time format accepted by
-#'   [base::strftime()], such as `"%Y-%m-%d"` or
-#'   `"%d.%m.%Y %H:%M"`. Defaults to `"%Y-%m-%d"`.
-#' @param resize Logical; reduce images larger than `long_side` before stamping.
-#'   Defaults to `TRUE`. Smaller images are never enlarged. Set to `FALSE` to
-#'   keep the original pixel dimensions after applying EXIF orientation.
-#' @param long_side Positive whole number giving the maximum length of the longer
-#'   image side in pixels when `resize = TRUE`. Defaults to `2000`.
-#' @param quality JPEG quality as a whole number from 1 to 100. Defaults to `80`.
-#'   This applies whether or not resizing is enabled.
+#' @param input_folder A single input folder, scanned recursively, including hidden files and folders.
+#' @param output_folder A single folder for output copies and \code{processing_log.csv}. It must differ from the input folder and must not contain it. A nested output folder is allowed and is excluded from input traversal.
+#' @param date_format A single non-empty format string accepted by \code{\link[base:strptime]{strftime}}, for example \code{"%Y-%m-%d"} or \code{"%d.%m.%Y %H:%M"}. The default is \code{"%Y-%m-%d"}.
+#' @param resize A single logical value. If \code{TRUE}, reduce images whose longer side exceeds \code{long_side} before adding the date. Smaller images are never enlarged. If \code{FALSE}, retain the pixel dimensions after applying EXIF orientation.
+#' @param long_side A positive whole number giving the maximum longer-side length in pixels when resizing. Defaults to \code{2000}. Aspect ratio is retained, subject to whole-pixel rounding.
+#' @param quality A whole number from 1 to 100 controlling JPEG encoding quality. Defaults to \code{80}, including when resizing is disabled. This is an encoder setting, not a measured percentage of preserved visual quality.
 #'
 #' @details
-#' Dates are taken from the first valid EXIF DateTimeOriginal, DateTimeDigitized
-#' (CreateDate), or DateTime tag, in that order. EXIF dates retain their recorded
-#' clock time without timezone conversion. If no usable EXIF date exists, the
-#' file modification time is used on every platform, so copied photos retain
-#' their fallback date when their modification time was preserved. File ctime
-#' (creation time on Windows; status-change time on Unix) is the last fallback.
-#' These file times are not guaranteed capture dates; the log identifies their use.
-#' If no date is available, the stamp reads \code{"unknown date"}.
+#' The date is selected from the first valid EXIF \code{DateTimeOriginal},
+#' \code{DateTimeDigitized} (also called \code{CreateDate}), or \code{DateTime}
+#' tag, in that order. The recorded EXIF clock time is retained without timezone
+#' conversion; EXIF offset-time tags are not interpreted. If no EXIF date is valid,
+#' file modification time is used, then file creation/change time as a last
+#' fallback. Filesystem times are formatted in the current local timezone.
+#' They are not guaranteed capture dates. The log records the selected source.
+#' If no time is available, the text is \code{"unknown date"}.
 #'
-#' EXIF orientation is applied first. When resizing is needed, the image is
-#' reduced with `magick::image_resize()` using the Lanczos filter, preserving
-#' its aspect ratio (subject to whole-pixel rounding). The date is drawn at the
-#' final size, then the JPEG is encoded once at the requested `quality`.
-#' The original EXIF APP1 segment is retained on a best-effort basis. Its
-#' Orientation tag is reset to 1, and existing standard width/height tags are
-#' updated to the output dimensions. Other metadata (including ICC/XMP) and
-#' embedded thumbnails are not rebuilt.
-#' CMYK JPEGs are retained as unprocessed originals instead of being rendered
-#' with incorrect colours. Resizing uses the `magick` R package; no external
-#' ExifTool or ImageMagick command-line program is called.
+#' EXIF orientation is applied before resizing. Larger images are resized with
+#' \code{magick::image_resize()} and the Lanczos filter. Black date text with a
+#' white outline is drawn in the bottom-right corner at the final resolution.
+#' The image is then JPEG-encoded once at the requested quality. This operation
+#' is lossy even when \code{resize = FALSE}; retain your original photographs.
+#' No external ExifTool or ImageMagick command-line program is called by this
+#' function, although the \pkg{magick} R package uses ImageMagick libraries.
 #'
-#' Existing output files are never overwritten; numbered suffixes are added as
-#' needed. If an existing file blocks a required output subfolder, that subfolder
-#' also receives a numeric suffix. JPEGs that cannot be stamped are copied unchanged under
-#' \code{unprocessed}, preserving their relative paths, and the reason is logged.
-#' This folder is created only when needed. Input files are never moved.
+#' The original EXIF APP1 segment is reinserted on a best-effort basis.
+#' Retained EXIF may include GPS locations; output files are not anonymized.
+#' Its orientation tag is reset to normal, and existing standard width and height
+#' tags are updated. Other metadata segments, including ICC colour profiles and
+#' XMP, are not retained. Embedded EXIF thumbnails are not rebuilt and may show
+#' the original, unannotated image. Exact colour-profile preservation is not
+#' provided. CMYK JPEGs are copied unchanged to the failure category instead of
+#' being rendered with an unsupported colour model.
 #'
-#' A cumulative \code{processing_log.csv} is written under the output folder.
-#' That filename is reserved: an input file with the same name receives a
-#' suffix, and an input subfolder with that name becomes
-#' \code{processing_log_input}. Repeated calls create additional output copies.
-#' An empty input folder produces an empty result without creating output folders.
+#' @section File safety and repeated runs:
+#' Input originals are never moved or overwritten. Non-JPEG files are copied
+#' unchanged. Relative subfolders are retained unless a reserved name or an existing
+#' file blocks a directory; affected directories then receive an alternate name.
+#' Existing destination files receive numeric suffixes, never silent replacement.
+#' Symbolic-link cycles are avoided, links outside the input tree are skipped with
+#' a warning, and output subfolder links cannot redirect writes outside the output
+#' root. Each encountered physical file path is processed once per run.
 #'
-#' @return Invisibly returns a data frame for the current run, with columns
-#'   \code{file}, \code{relative}, \code{output_file}, \code{status},
-#'   \code{stamp_text}, \code{date_source}, \code{error}, and \code{processed_at}.
-#'   Status is \code{stamped}, \code{copied} (another file type),
-#'   \code{unprocessed} (failed JPEG retained), or \code{failed} (no output copy).
-#' @seealso [copy_photos_to_plots()]
-#' @examples
-#' \dontrun{
-#' write_into_image("plotphotos_output", "dated_photos")
-#' write_into_image("photos", "dated_photos", date_format = "%d.%m.%Y %H:%M",
-#'                  resize = TRUE, long_side = 2000, quality = 80)
-#' write_into_image("photos", "full_size_dated", resize = FALSE, quality = 90)
+#' JPEGs that cannot be decoded, annotated, or written are copied unchanged into
+#' \code{unprocessed} under the output root, preserving their relative path. That
+#' folder is created only when needed. If copying the original also fails, the row
+#' has status \code{failed}, and a warning is issued. Newly created, empty folders
+#' are cleaned up after copy failure.
+#'
+#' The root filename \code{processing_log.csv} is reserved for the cumulative log.
+#' An input file with that name receives a suffix; an input folder with that name
+#' is mapped to \code{processing_log_input}. An input folder called
+#' \code{unprocessed} is mapped to \code{unprocessed_input} so that the failure
+#' category is not used for successfully processed inputs. Alternate directory
+#' names may share a directory with a pre-existing input name; filename suffixes
+#' still prevent overwriting, and the log records each actual destination.
+#'
+#' Repeated calls create additional output copies; this workflow does not skip
+#' previously stamped sources. Use a fresh output folder when changing settings.
+#' The log is staged before replacement and the previous log is retained until
+#' replacement succeeds. Do not run concurrent writers to the same output tree.
+#' An empty input produces a zero-row result without creating output directories.
+#'
+#' @return Invisibly returns a data frame for the current run. The CSV log accumulates
+#' all runs. Columns are:
+#' \describe{
+#' \item{file}{Source path.}
+#' \item{relative}{Source path relative to the input root.}
+#' \item{output_file}{Actual output path, or \code{NA} if no copy could be written.}
+#' \item{status}{\code{stamped} for a processed JPEG, \code{copied} for another
+#' file type copied unchanged, \code{unprocessed} for a failed JPEG whose original
+#' was retained in the failure category, or \code{failed} if no output copy exists.}
+#' \item{stamp_text}{Text selected for annotation; empty for non-JPEG files.}
+#' \item{date_source}{The selected EXIF tag, \code{file:mtime}, \code{file:ctime},
+#' or \code{none}; empty for non-JPEG files.}
+#' \item{error}{The failure reason, or an empty string.}
+#' \item{processed_at}{Local processing time, formatted as year-month-day hour:minute:second.}
 #' }
+#'
+#' @seealso \code{\link{copy_photos_to_plots}}, \code{\link[base:strptime]{strftime}}, \code{\link{plotphotos-package}}
+#'
+#' @examples
+#' if (capabilities("jpeg")) {
+#'   (function() {
+#'     root <- tempfile("plotphotos-stamp-")
+#'     dir.create(root)
+#'     on.exit(unlink(root, recursive = TRUE))
+#'     input <- file.path(root, "input")
+#'     dir.create(input)
+#'     image <- file.path(input, "example.jpg")
+#'     jpeg::writeJPEG(array(0.65, dim = c(120, 200, 3)), image)
+#'     Sys.setFileTime(image, as.POSIXct("2024-04-22 12:00:00", tz = "UTC"))
+#'     log <- write_into_image(
+#'       input, file.path(root, "dated"), date_format = "%d.%m.%Y",
+#'       resize = TRUE, long_side = 160, quality = 80
+#'     )
+#'     log[, c("status", "stamp_text", "date_source")]
+#'   })()
+#' }
+#' @encoding UTF-8
 #' @export
 write_into_image <- function(input_folder, output_folder,
                              date_format = "%Y-%m-%d",
@@ -91,7 +127,7 @@ write_into_image <- function(input_folder, output_folder,
   }
   if (!dir.exists(input_folder)) stop("Input folder does not exist: ", input_folder)
   input_folder <- normalizePath(input_folder, winslash = "/", mustWork = TRUE)
-  output_folder <- .stamp_absolute_path(output_folder)
+  output_folder <- canonical_path(output_folder)
   path_key <- function(x) if (.Platform$OS.type == "windows") tolower(x) else x
   if (identical(path_key(input_folder), path_key(output_folder))) {
     stop("input_folder and output_folder must be different.", call. = FALSE)
@@ -103,13 +139,7 @@ write_into_image <- function(input_folder, output_folder,
   if (file.exists(output_folder) && !dir.exists(output_folder)) {
     stop("output_folder is an existing file: ", output_folder)
   }
-  files <- list.files(input_folder, recursive = TRUE, all.files = TRUE,
-                      full.names = TRUE, include.dirs = FALSE, no.. = TRUE)
-  files <- files[utils::file_test("-f", files)]
-  canonical <- normalizePath(files, winslash = "/", mustWork = TRUE)
-  outside_output <- !startsWith(path_key(canonical),
-                               paste0(sub("/+$", "", path_key(output_folder)), "/"))
-  files <- files[outside_output]
+  files <- scan_input_files(input_folder, exclude_trees = output_folder)
   log_template <- data.frame(file = character(), relative = character(),
     output_file = character(), status = character(), stamp_text = character(),
     date_source = character(), error = character(), processed_at = character(),
@@ -121,9 +151,13 @@ write_into_image <- function(input_folder, output_folder,
 
   log_csv <- file.path(output_folder, "processing_log.csv")
   old <- NULL
+  if (!path_within(canonical_path(log_csv), output_folder)) {
+    stop("processing_log.csv resolves outside output_folder.", call. = FALSE)
+  }
   if (file.exists(log_csv)) {
-    old <- tryCatch(utils::read.csv(log_csv, stringsAsFactors = FALSE),
-                    error = function(e) NULL)
+    old <- tryCatch(read_processing_log(log_csv),
+                    error = function(e) stop("Cannot read existing processing log: ",
+                      conditionMessage(e), call. = FALSE))
     required <- setdiff(names(log_template), "output_file")
     if (is.null(old) || !all(required %in% names(old))) {
       stop("Existing processing_log.csv is not a compatible processing log.",
@@ -140,13 +174,15 @@ write_into_image <- function(input_folder, output_folder,
     relative <- substring(src, nchar(root_prefix) + 1L)
     target_relative <- sub("^processing_log[.]csv/", "processing_log_input/",
                            relative, ignore.case = .Platform$OS.type == "windows")
-    dest <- .stamp_unique_path(file.path(output_folder, target_relative),
-                               reserved, root = output_folder)
+    target_relative <- sub("^unprocessed/", "unprocessed_input/", target_relative,
+                           ignore.case = .Platform$OS.type == "windows")
     is_jpeg <- grepl("[.](jpg|jpeg)$", src, ignore.case = TRUE)
     status <- if (is_jpeg) "stamped" else "copied"
     stamp_text <- date_source <- error <- ""
     output_file <- NA_character_
     tryCatch({
+      dest <- .stamp_unique_path(file.path(output_folder, target_relative),
+                                 reserved, root = output_folder)
       if (is_jpeg) {
         ex <- .stamp_exif(src)
         dt <- ex$dt
@@ -173,9 +209,9 @@ write_into_image <- function(input_folder, output_folder,
       error <<- conditionMessage(e)
       status <<- "failed"
       if (is_jpeg) {
-        fallback <- .stamp_unique_path(file.path(output_folder, "unprocessed", relative),
-                                       root = output_folder)
         tryCatch({
+          fallback <- .stamp_unique_path(file.path(output_folder, "unprocessed", relative),
+                                         root = output_folder)
           .stamp_copy(src, fallback)
           output_file <<- fallback
           status <<- "unprocessed"
@@ -195,7 +231,7 @@ write_into_image <- function(input_folder, output_folder,
       !dir.create(output_folder, recursive = TRUE, showWarnings = FALSE)) {
     stop("Cannot create output folder: ", output_folder)
   }
-  utils::write.csv(rbind(old, result), log_csv, row.names = FALSE)
+  write_processing_log(rbind(old, result), log_csv)
   message("Stamped: ", sum(result$status == "stamped"),
           "; copied unchanged: ", sum(result$status == "copied"),
           "; unprocessed JPEGs retained: ", sum(result$status == "unprocessed"),
@@ -205,24 +241,6 @@ write_into_image <- function(input_folder, output_folder,
     warning("Some files could not be copied; see processing_log.csv.", call. = FALSE)
   }
   invisible(result)
-}
-
-# Resolve a prospective output path using its nearest existing ancestor.
-.stamp_absolute_path <- function(path) {
-  path <- path.expand(path)
-  tail <- character()
-  while (!dir.exists(path) && !file.exists(path)) {
-    parent <- dirname(path)
-    if (identical(parent, path)) stop("Cannot resolve output_folder: ", path)
-    tail <- c(basename(path), tail)
-    path <- parent
-  }
-  path <- normalizePath(path, winslash = "/", mustWork = TRUE)
-  for (part in tail) {
-    if (part == "..") path <- dirname(path)
-    else if (part != ".") path <- file.path(path, part)
-  }
-  path
 }
 
 .stamp_unique_path <- function(path, reserved = character(), root) {
@@ -242,6 +260,10 @@ write_into_image <- function(input_folder, output_folder,
     candidate
   }
   path <- file.path(directory(dirname(path)), basename(path))
+  resolved <- canonical_path(dirname(path))
+  if (!path_within(resolved, canonical_path(root))) {
+    stop("Output subfolder resolves outside output_folder: ", dirname(path), call. = FALSE)
+  }
   base <- tools::file_path_sans_ext(path)
   ext <- tools::file_ext(path)
   suffix <- if (nzchar(ext)) paste0(".", ext) else ""
@@ -256,17 +278,36 @@ write_into_image <- function(input_folder, output_folder,
 
 .stamp_copy <- function(from, to) {
   parent <- dirname(to)
-  new_parent <- !dir.exists(parent)
-  if (new_parent && !dir.create(parent, recursive = TRUE, showWarnings = FALSE)) {
+  new_dirs <- character()
+  directory <- parent
+  while (!dir.exists(directory)) {
+    new_dirs <- c(new_dirs, directory)
+    above <- dirname(directory)
+    if (identical(above, directory)) break
+    directory <- above
+  }
+  ok <- FALSE
+  on.exit({
+    if (!ok) {
+      for (directory in new_dirs) {
+        if (dir.exists(directory) &&
+            !length(list.files(directory, all.files = TRUE, no.. = TRUE))) {
+          unlink(directory, recursive = TRUE)
+        }
+      }
+    }
+  }, add = TRUE)
+  if (!dir.exists(parent) &&
+      !dir.create(parent, recursive = TRUE, showWarnings = FALSE)) {
     stop("Cannot create folder: ", parent)
   }
   if (file.exists(to)) stop("Destination already exists: ", to)
-  ok <- suppressWarnings(file.copy(from, to, overwrite = FALSE, copy.date = TRUE))
-  if (!isTRUE(ok)) {
+  ok <- isTRUE(tryCatch(
+    suppressWarnings(file.copy(from, to, overwrite = FALSE, copy.date = TRUE)),
+    error = function(e) FALSE
+  ))
+  if (!ok) {
     if (file.exists(to)) unlink(to)
-    if (new_parent && !length(list.files(parent, all.files = TRUE, no.. = TRUE))) {
-      unlink(parent, recursive = TRUE)
-    }
     stop("Cannot copy file to: ", to)
   }
   invisible(to)
@@ -305,31 +346,36 @@ write_into_image <- function(input_folder, output_folder,
   tryCatch(trimws(rawToChar(value)), error = function(e) "")
 }
 
-.stamp_app1 <- function(bytes) {
-  n <- length(bytes)
-  if (n < 4 || !identical(bytes[1:2], as.raw(c(255, 216)))) return(NULL)
-  i <- 3L
-  while (i + 3 <= n) {
-    if (bytes[i] != as.raw(255)) break
-    marker <- as.integer(bytes[i + 1L])
-    if (marker == 255) { i <- i + 1L; next }
-    if (marker %in% c(218L, 217L)) break
-    if (marker == 1L || marker %in% 208:215) { i <- i + 2L; next }
-    size <- .stamp_uint(bytes, i + 2L, 2L, little = FALSE)
-    end <- i + size + 1
-    if (is.na(size) || size < 2 || end > n) break
-    if (marker == 225L && size >= 8 &&
-        identical(bytes[(i + 4):(i + 9)], as.raw(c(69, 120, 105, 102, 0, 0)))) {
-      return(bytes[seq.int(i, end)])
+.stamp_read_app1 <- function(path) {
+  con <- file(path, open = "rb")
+  on.exit(close(con), add = TRUE)
+  if (!identical(readBin(con, "raw", n = 2L), as.raw(c(255, 216)))) return(NULL)
+  repeat {
+    prefix <- readBin(con, "raw", n = 1L)
+    if (length(prefix) != 1L || prefix != as.raw(255)) return(NULL)
+    marker <- readBin(con, "raw", n = 1L)
+    while (length(marker) == 1L && marker == as.raw(255)) {
+      marker <- readBin(con, "raw", n = 1L)
     }
-    i <- end + 1
+    if (!length(marker)) return(NULL)
+    code <- as.integer(marker)
+    if (code %in% c(218L, 217L)) return(NULL)
+    if (code == 1L || code %in% 208:215) next
+    size_bytes <- readBin(con, "raw", n = 2L)
+    if (length(size_bytes) != 2L) return(NULL)
+    size <- .stamp_uint(size_bytes, 1L, 2L, little = FALSE)
+    if (size < 2L) return(NULL)
+    payload <- readBin(con, "raw", n = size - 2L)
+    if (length(payload) != size - 2L) return(NULL)
+    if (code == 225L && length(payload) >= 6L &&
+        identical(payload[1:6], as.raw(c(69, 120, 105, 102, 0, 0)))) {
+      return(c(prefix, marker, size_bytes, payload))
+    }
   }
-  NULL
 }
 
 .stamp_exif <- function(path) {
-  bytes <- readBin(path, "raw", n = file.info(path)$size)
-  app1 <- .stamp_app1(bytes)
+  app1 <- .stamp_read_app1(path)
   result <- list(dt = as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC"),
                  date_source = "none", orientation = 1L, app1 = app1)
   if (is.null(app1) || length(app1) < 18) return(result)

@@ -1,6 +1,8 @@
 test_root <- function() {
   root <- tempfile("plotphotos-")
   dir.create(root)
+  root <- normalizePath(root, winslash = "/", mustWork = TRUE)
+  withr::defer(unlink(root, recursive = TRUE), envir = parent.frame())
   root
 }
 
@@ -233,10 +235,10 @@ test_that("resizing shrinks oriented photos to the requested long side without e
   landscape <- file.path(input, "landscape.jpg")
   portrait <- file.path(input, "portrait.jpg")
   small <- file.path(input, "small.jpg")
-  pixels <- array(0.1, c(1500, 2500, 3))
-  pixels[1:750, 1:1250, 1] <- 0.9
-  pixels[1:750, 1251:2500, 2] <- 0.9
-  pixels[751:1500, 1:1250, 3] <- 0.9
+  pixels <- array(0.1, c(300, 500, 3))
+  pixels[1:150, 1:250, 1] <- 0.9
+  pixels[1:150, 251:500, 2] <- 0.9
+  pixels[151:300, 1:250, 3] <- 0.9
   jpeg::writeJPEG(pixels, landscape)
   rm(pixels)
   bytes <- readBin(landscape, "raw", n = file.info(landscape)$size)
@@ -248,24 +250,24 @@ test_that("resizing shrinks oriented photos to the requested long side without e
   jpeg::writeJPEG(array(0.7, c(120, 200, 3)), small)
   hashes <- tools::md5sum(c(landscape, portrait, small))
 
-  sized <- suppressMessages(write_into_image(input, file.path(root, "default")))
+  sized <- suppressMessages(write_into_image(input, file.path(root, "default"), long_side = 400))
   images <- lapply(sized$output_file[match(c(landscape, portrait, small), sized$file)], jpeg::readJPEG)
-  expect_equal(lapply(images, dim), list(c(1200L, 2000L, 3L), c(2000L, 1200L, 3L),
+  expect_equal(lapply(images, dim), list(c(240L, 400L, 3L), c(400L, 240L, 3L),
                                         c(120L, 200L, 3L)))
   expect_gt(images[[1]][20, 20, 1], images[[1]][20, 20, 3])
   expect_gt(images[[2]][20, 20, 3], images[[2]][20, 20, 1])
   rm(images)
 
-  custom <- suppressMessages(write_into_image(input, file.path(root, "custom"), long_side = 1000))
+  custom <- suppressMessages(write_into_image(input, file.path(root, "custom"), long_side = 300))
   sizes <- lapply(custom$output_file[match(c(landscape, portrait, small), custom$file)],
                    function(path) dim(jpeg::readJPEG(path)))
-  expect_equal(sizes, list(c(600L, 1000L, 3L), c(1000L, 600L, 3L), c(120L, 200L, 3L)))
+  expect_equal(sizes, list(c(180L, 300L, 3L), c(300L, 180L, 3L), c(120L, 200L, 3L)))
 
   native <- suppressMessages(write_into_image(input, file.path(root, "native"),
                                                resize = FALSE, long_side = 50))
   sizes <- lapply(native$output_file[match(c(landscape, portrait, small), native$file)],
                    function(path) dim(jpeg::readJPEG(path)))
-  expect_equal(sizes, list(c(1500L, 2500L, 3L), c(2500L, 1500L, 3L), c(120L, 200L, 3L)))
+  expect_equal(sizes, list(c(300L, 500L, 3L), c(500L, 300L, 3L), c(120L, 200L, 3L)))
   expect_equal(tools::md5sum(c(landscape, portrait, small)), hashes)
 })
 
@@ -303,4 +305,188 @@ test_that("invalid resize and quality parameters fail before creating outputs", 
       "resize|long_side|quality")
   }
   expect_false(dir.exists(output))
+})
+
+test_that("both installed help pages and the package topic resolve and render", {
+  root <- test_root()
+  database <- tools::Rd_db("plotphotos")
+  for (topic in c("copy_photos_to_plots", "write_into_image", "plotphotos-package")) {
+    expect_gt(length(utils::help(topic, package = "plotphotos")), 0L)
+    page <- database[[paste0(topic, ".Rd")]]
+    expect_false(is.null(page))
+    target <- file.path(root, paste0(topic, ".html"))
+    expect_no_error(tools::Rd2HTML(page, out = target, package = "plotphotos"))
+    html <- paste(readLines(target, warn = FALSE), collapse = "\n")
+    expect_match(html, "<html", ignore.case = TRUE)
+    expect_false(grepl("Internal Server Error", html, fixed = TRUE))
+  }
+})
+
+test_that("citation separates the human author from the AI development tool", {
+  references <- utils::citation("plotphotos")
+  expect_length(references, 2L)
+  expect_match(as.character(references[[1]]$author), "Josef")
+  expect_match(references[[1]]$note, as.character(utils::packageVersion("plotphotos")), fixed = TRUE)
+  expect_equal(references[[2]]$title, "ChatGPT")
+  expect_match(as.character(references[[2]]$author), "OpenAI")
+  expect_false(grepl("OpenAI", as.character(references[[1]]$author), fixed = TRUE))
+})
+
+test_that("the actual default long side is 2000 and smaller inputs are not enlarged", {
+  skip_if_not(capabilities("jpeg"))
+  root <- test_root()
+  input <- file.path(root, "input")
+  dir.create(input)
+  jpeg::writeJPEG(array(0.6, c(40, 2100, 3)), file.path(input, "wide.jpg"))
+  result <- suppressMessages(write_into_image(input, file.path(root, "output")))
+  expect_equal(result$status, "stamped")
+  dimensions <- dim(jpeg::readJPEG(result$output_file))
+  expect_equal(max(dimensions[1:2]), 2000L)
+  expect_equal(formals(write_into_image)$quality, 80)
+})
+
+test_that("logs cannot overwrite an input and categories cannot overlap", {
+  root <- test_root()
+  input <- file.path(root, "input")
+  source <- test_file(file.path(input, "notes.csv"), "important,original")
+  digest <- tools::md5sum(source)
+  plots <- test_plots(root)
+  output <- file.path(root, "output")
+  expect_error(copy_photos_to_plots(input, output, plots,
+    write_log_csv = source, verbose = FALSE), "write_log_csv")
+  expect_equal(tools::md5sum(source), digest)
+  expect_error(copy_photos_to_plots(input, output, plots,
+    sub_correct = "same", sub_far = "same", verbose = FALSE), "distinct")
+  expect_error(copy_photos_to_plots(input, output, plots,
+    sub_correct = "parent", sub_far = "parent/child", verbose = FALSE), "distinct")
+  expect_error(copy_photos_to_plots(input, output, plots,
+    sub_no_gps = "../escape", verbose = FALSE), "below out_root")
+  expect_false(dir.exists(output))
+})
+
+test_that("unsafe and very long filename stems are handled without overwriting", {
+  root <- test_root()
+  cleaned <- plotphotos:::sanitize_filename(c("CON", "LPT1", "name...", "a/b:c", ""))
+  expect_equal(cleaned, c("_CON", "_LPT1", "name", "a_b_c", "unnamed"))
+  stem <- paste(rep("x", 220), collapse = "")
+  first <- plotphotos:::allocate_dest_path(root, stem, "jpg")
+  writeLines("keep", first)
+  second <- plotphotos:::allocate_dest_path(root, stem, "jpg")
+  expect_false(identical(first, second))
+  expect_lte(nchar(basename(second), type = "bytes"), 184L)
+  expect_equal(readLines(first), "keep")
+  reserved <- file.path(root, "reserved.csv")
+  expect_false(identical(plotphotos:::allocate_dest_path(root, "reserved", "csv",
+                                                       reserved = reserved), reserved))
+})
+
+test_that("input failure-category names do not create the reserved failure folder", {
+  root <- test_root()
+  input <- file.path(root, "input")
+  source <- test_file(file.path(input, "unprocessed", "note.txt"), "ordinary input")
+  test_file(file.path(input, "processing_log.csv", "note.txt"), "nested input")
+  output <- file.path(root, "output")
+  result <- suppressMessages(write_into_image(input, output))
+  expect_true(all(result$status == "copied"))
+  expect_true(all(file.exists(result$output_file)))
+  expect_false(dir.exists(file.path(output, "unprocessed")))
+  expect_true(file.exists(file.path(output, "unprocessed_input", "note.txt")))
+  expect_true(file.exists(file.path(output, "processing_log_input", "note.txt")))
+  expect_equal(unname(tools::md5sum(source)),
+               unname(tools::md5sum(result$output_file[result$file == source])))
+})
+
+test_that("spherical GPS assignment works across the antimeridian and restores options", {
+  root <- test_root()
+  input <- file.path(root, "input")
+  photo <- test_file(file.path(input, "across.jpg"))
+  plots <- sf::st_as_sf(data.frame(locality_id = c("near", "far"),
+    lon = c(-179.99995, 170), lat = c(0, 0)), coords = c("lon", "lat"), crs = 4326)
+  gpkg <- file.path(root, "plots.gpkg")
+  sf::st_write(plots, gpkg, quiet = TRUE)
+  local_mocked_bindings(read_exif = function(...) data.frame(SourceFile = photo,
+    GPSLongitude = 179.99995, GPSLatitude = 0), .package = "exifr")
+  before <- sf::sf_use_s2()
+  withr::defer(suppressMessages(sf::sf_use_s2(before)))
+  suppressMessages(sf::sf_use_s2(FALSE))
+  result <- copy_photos_to_plots(input, file.path(root, "output"), gpkg,
+                                 threshold_m = 30, verbose = FALSE)
+  expect_equal(result$status, "correct_within_threshold")
+  expect_equal(result$ids_used, "near")
+  expect_lt(result$min_dist_m, 30)
+  expect_false(sf::sf_use_s2())
+})
+
+test_that("symbolic-link cycles terminate and external output links cannot redirect writes", {
+  skip_on_os("windows")
+  root <- test_root()
+  input <- file.path(root, "input")
+  source <- test_file(file.path(input, "group", "note.txt"))
+  expect_true(file.symlink(input, file.path(input, "loop")))
+  external <- file.path(root, "external")
+  dir.create(external)
+  sentinel <- test_file(file.path(external, "keep.txt"), "unchanged")
+  expect_true(file.symlink(external, file.path(input, "outside")))
+  expect_warning(found <- plotphotos:::scan_input_files(input), "outside the input")
+  expect_equal(found, source)
+  unlink(file.path(input, "outside"))
+  output <- file.path(root, "output")
+  dir.create(output)
+  expect_true(file.symlink(external, file.path(output, "group")))
+  original <- tools::md5sum(sentinel)
+  expect_warning(result <- suppressMessages(write_into_image(input, output)),
+                 "could not be copied")
+  expect_equal(result$status, "failed")
+  expect_equal(tools::md5sum(sentinel), original)
+  expect_false(file.exists(file.path(external, "note.txt")))
+})
+
+test_that("all eight EXIF orientations transform pixels as expected", {
+  pixels <- array(rep(1:6, 3), dim = c(2, 3, 3))
+  expected <- list(
+    matrix(c(1, 2, 3, 4, 5, 6), 2, 3),
+    matrix(c(5, 6, 3, 4, 1, 2), 2, 3),
+    matrix(c(6, 5, 4, 3, 2, 1), 2, 3),
+    matrix(c(2, 1, 4, 3, 6, 5), 2, 3),
+    matrix(c(1, 3, 5, 2, 4, 6), 3, 2),
+    matrix(c(2, 4, 6, 1, 3, 5), 3, 2),
+    matrix(c(6, 4, 2, 5, 3, 1), 3, 2),
+    matrix(c(5, 3, 1, 6, 4, 2), 3, 2)
+  )
+  for (orientation in seq_len(8L)) {
+    transformed <- plotphotos:::.stamp_orient(pixels, orientation)
+    expect_equal(transformed[, , 1], expected[[orientation]])
+  }
+})
+
+test_that("truncated or malformed EXIF headers do not abort date fallback", {
+  root <- test_root()
+  for (bytes in list(raw(), as.raw(c(255, 216)),
+    as.raw(c(255, 216, 255, 225, 255, 255, 69, 120, 105, 102, 0, 0)),
+    as.raw(c(255, 216, 255, 225, 0, 1)))) {
+    path <- tempfile(tmpdir = root, fileext = ".jpg")
+    writeBin(bytes, path)
+    expect_no_error(metadata <- plotphotos:::.stamp_exif(path))
+    expect_true(is.na(metadata$dt))
+    expect_equal(metadata$orientation, 1L)
+  }
+})
+
+test_that("a failed log replacement restores the previous log", {
+  root <- test_root()
+  path <- file.path(root, "log.csv")
+  previous <- data.frame(id = "old")
+  plotphotos:::write_processing_log(previous, path)
+  digest <- tools::md5sum(path)
+  rename <- base::file.rename
+  local_mocked_bindings(replace_path = function(from, to) {
+    # Fail only the new-log rename; allow backup and restoration.
+    if (startsWith(basename(from), ".plotphotos-log-") &&
+        !startsWith(basename(from), ".plotphotos-log-backup-")) return(FALSE)
+    rename(from, to)
+  }, .package = "plotphotos")
+  expect_error(plotphotos:::write_processing_log(data.frame(id = "new"), path),
+               "previous log was preserved")
+  expect_equal(tools::md5sum(path), digest)
+  expect_equal(plotphotos:::read_processing_log(path), previous)
 })

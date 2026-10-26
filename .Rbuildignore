@@ -1,4 +1,11 @@
-^\.gitlab-ci\.yml$
-^\.Rproj\.user$
-^.*\.Rproj$
-^.*\.gpkg$
+^.*[.]Rproj$
+^[.]Rproj[.]user$
+^[.]git$
+^[.]github$
+^LICENSE[.]md$
+^cran-comments[.]md$
+^.*[.]Rcheck$
+^plotphotos_[0-9].*[.]tar[.]gz$
+^plotphotos.*[.]zip$
+^[.]DS_Store$
+^Thumbs[.]db$

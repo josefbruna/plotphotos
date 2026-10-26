@@ -1,0 +1,27 @@
+citHeader(paste(
+  "To cite plotphotos, use the first entry.",
+  "The second entry documents the AI tool used during development,",
+  "not an additional package author."
+))
+
+bibentry(
+  bibtype = "Manual",
+  title = "plotphotos: Organize Field Photographs and Annotate Capture Dates",
+  author = person("Josef", "Br\u016fna"),
+  year = "2026",
+  note = paste("R package version", meta$Version),
+  url = "https://github.com/josefbruna/plotphotos"
+)
+
+bibentry(
+  bibtype = "Misc",
+  title = "ChatGPT",
+  author = person("OpenAI"),
+  year = "2026",
+  note = paste(
+    "Large language model. Extensive assistance with code development,",
+    "debugging, tests, and documentation under Josef Br\u016fna's direction.",
+    "Specific model snapshots used during development were not recorded."
+  ),
+  url = "https://chatgpt.com/"
+)

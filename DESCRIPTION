@@ -1,32 +1,38 @@
 Package: plotphotos
 Type: Package
-Title: Sort Plot Photos and Stamp Capture Dates
-Version: 0.2.1
+Title: Organize Field Photographs and Annotate Capture Dates
+Version: 0.3.0
 Authors@R: c(
-    person("Josef", "Brůna", email = "josef.bruna@ibot.cas.cz", role = c("aut", "cre"))
-  )
-Description: Copies files from one or more input folders into plot-based categories,
-    using JPEG GPS metadata, filename prefixes, or parent folder names. Files without
-    usable coordinates or a plot match are retained, and category folders are created
-    only when needed. A separate function resizes JPEG copies using Lanczos
-    resampling and writes capture dates with configurable size and JPEG quality,
-    while preserving the input folder structure, applying EXIF orientation, and
-    retaining original files. Output naming avoids overwriting existing files.
+    person("Josef", "Brůna", email = "josef.bruna@ibot.cas.cz",
+           role = c("aut", "cre")),
+    person("Institute of Botany", role = "cph")
+    )
+Description: Organizes field photographs and accompanying files using plot
+    coordinates, filename prefixes, and parent folder names. All readable files
+    are retained, including photographs without usable location metadata.
+    A separate workflow writes capture dates onto JPEG copies, applies image
+    orientation, and optionally reduces their dimensions with Lanczos resampling.
+    Original input files are retained, output names avoid collisions, and CSV
+    logs record the processing decisions and failures.
 License: MIT + file LICENSE
+URL: https://github.com/josefbruna/plotphotos
+BugReports: https://github.com/josefbruna/plotphotos/issues
 Encoding: UTF-8
+Depends:
+    R (>= 4.1.0)
 Imports:
-    sf,
+    sf (>= 1.0-0),
     exifr,
     units,
     jpeg,
     magick,
     graphics,
-    grDevices
+    grDevices,
+    utils,
+    tools
 Suggests:
-    roxygen2,
     testthat (>= 3.2.0),
-    devtools,
-    usethis
-Roxygen: list(markdown = TRUE)
+    withr
 Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.1

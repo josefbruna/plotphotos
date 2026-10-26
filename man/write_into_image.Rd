@@ -2,7 +2,8 @@
 % Please edit documentation in R/write_into_image.R
 \name{write_into_image}
 \alias{write_into_image}
-\title{Resize JPEG copies and write capture dates}
+\encoding{UTF-8}
+\title{Resize JPEG copies and annotate capture dates}
 \usage{
 write_into_image(
   input_folder,
@@ -14,80 +15,113 @@ write_into_image(
 )
 }
 \arguments{
-\item{input_folder}{Input folder to scan recursively.}
+\item{input_folder}{A single input folder, scanned recursively, including hidden files and folders.}
 
-\item{output_folder}{Folder for stamped copies and the processing log. It must
-differ from the input folder and must not contain it. A nested output folder
-is excluded from scanning.}
+\item{output_folder}{A single folder for output copies and \code{processing_log.csv}. It must differ from the input folder and must not contain it. A nested output folder is allowed and is excluded from input traversal.}
 
-\item{date_format}{A single non-empty date/time format accepted by
-\code{\link[base:strptime]{base::strftime()}}, such as \code{"\%Y-\%m-\%d"} or
-\code{"\%d.\%m.\%Y \%H:\%M"}. Defaults to \code{"\%Y-\%m-\%d"}.}
+\item{date_format}{A single non-empty format string accepted by \code{\link[base:strptime]{strftime}}, for example \code{"\%Y-\%m-\%d"} or \code{"\%d.\%m.\%Y \%H:\%M"}. The default is \code{"\%Y-\%m-\%d"}.}
 
-\item{resize}{Logical; reduce images larger than \code{long_side} before stamping.
-Defaults to \code{TRUE}. Smaller images are never enlarged. Set to \code{FALSE} to
-keep the original pixel dimensions after applying EXIF orientation.}
+\item{resize}{A single logical value. If \code{TRUE}, reduce images whose longer side exceeds \code{long_side} before adding the date. Smaller images are never enlarged. If \code{FALSE}, retain the pixel dimensions after applying EXIF orientation.}
 
-\item{long_side}{Positive whole number giving the maximum length of the longer
-image side in pixels when \code{resize = TRUE}. Defaults to \code{2000}.}
+\item{long_side}{A positive whole number giving the maximum longer-side length in pixels when resizing. Defaults to \code{2000}. Aspect ratio is retained, subject to whole-pixel rounding.}
 
-\item{quality}{JPEG quality as a whole number from 1 to 100. Defaults to \code{80}.
-This applies whether or not resizing is enabled.}
+\item{quality}{A whole number from 1 to 100 controlling JPEG encoding quality. Defaults to \code{80}, including when resizing is disabled. This is an encoder setting, not a measured percentage of preserved visual quality.}
 }
 \value{
-Invisibly returns a data frame for the current run, with columns
-\code{file}, \code{relative}, \code{output_file}, \code{status},
-\code{stamp_text}, \code{date_source}, \code{error}, and \code{processed_at}.
-Status is \code{stamped}, \code{copied} (another file type),
-\code{unprocessed} (failed JPEG retained), or \code{failed} (no output copy).
+Invisibly returns a data frame for the current run. The CSV log accumulates
+all runs. Columns are:
+\describe{
+\item{file}{Source path.}
+\item{relative}{Source path relative to the input root.}
+\item{output_file}{Actual output path, or \code{NA} if no copy could be written.}
+\item{status}{\code{stamped} for a processed JPEG, \code{copied} for another
+file type copied unchanged, \code{unprocessed} for a failed JPEG whose original
+was retained in the failure category, or \code{failed} if no output copy exists.}
+\item{stamp_text}{Text selected for annotation; empty for non-JPEG files.}
+\item{date_source}{The selected EXIF tag, \code{file:mtime}, \code{file:ctime},
+or \code{none}; empty for non-JPEG files.}
+\item{error}{The failure reason, or an empty string.}
+\item{processed_at}{Local processing time, formatted as year-month-day hour:minute:second.}
+}
 }
 \description{
-Recursively resizes JPEG/JPG copies and writes capture dates into their
-bottom-right corner, using black text with a white halo. Original input files are unchanged.
-Other files are copied unchanged, and relative subfolders are retained.
+Create JPEG copies with a date in the bottom-right corner. Optionally resize larger photographs before annotation. Original inputs remain unchanged, non-JPEG files are copied without alteration, and the relative folder structure is retained.
 }
 \details{
-Dates are taken from the first valid EXIF DateTimeOriginal, DateTimeDigitized
-(CreateDate), or DateTime tag, in that order. EXIF dates retain their recorded
-clock time without timezone conversion. If no usable EXIF date exists, the
-file modification time is used on every platform, so copied photos retain
-their fallback date when their modification time was preserved. File ctime
-(creation time on Windows; status-change time on Unix) is the last fallback.
-These file times are not guaranteed capture dates; the log identifies their use.
-If no date is available, the stamp reads \code{"unknown date"}.
+The date is selected from the first valid EXIF \code{DateTimeOriginal},
+\code{DateTimeDigitized} (also called \code{CreateDate}), or \code{DateTime}
+tag, in that order. The recorded EXIF clock time is retained without timezone
+conversion; EXIF offset-time tags are not interpreted. If no EXIF date is valid,
+file modification time is used, then file creation/change time as a last
+fallback. Filesystem times are formatted in the current local timezone.
+They are not guaranteed capture dates. The log records the selected source.
+If no time is available, the text is \code{"unknown date"}.
 
-EXIF orientation is applied first. When resizing is needed, the image is
-reduced with \code{magick::image_resize()} using the Lanczos filter, preserving
-its aspect ratio (subject to whole-pixel rounding). The date is drawn at the
-final size, then the JPEG is encoded once at the requested \code{quality}.
-The original EXIF APP1 segment is retained on a best-effort basis. Its
-Orientation tag is reset to 1, and existing standard width/height tags are
-updated to the output dimensions. Other metadata (including ICC/XMP) and
-embedded thumbnails are not rebuilt.
-CMYK JPEGs are retained as unprocessed originals instead of being rendered
-with incorrect colours. Resizing uses the \code{magick} R package; no external
-ExifTool or ImageMagick command-line program is called.
+EXIF orientation is applied before resizing. Larger images are resized with
+\code{magick::image_resize()} and the Lanczos filter. Black date text with a
+white outline is drawn in the bottom-right corner at the final resolution.
+The image is then JPEG-encoded once at the requested quality. This operation
+is lossy even when \code{resize = FALSE}; retain your original photographs.
+No external ExifTool or ImageMagick command-line program is called by this
+function, although the \pkg{magick} R package uses ImageMagick libraries.
 
-Existing output files are never overwritten; numbered suffixes are added as
-needed. If an existing file blocks a required output subfolder, that subfolder
-also receives a numeric suffix. JPEGs that cannot be stamped are copied unchanged under
-\code{unprocessed}, preserving their relative paths, and the reason is logged.
-This folder is created only when needed. Input files are never moved.
+The original EXIF APP1 segment is reinserted on a best-effort basis.
+Retained EXIF may include GPS locations; output files are not anonymized.
+Its orientation tag is reset to normal, and existing standard width and height
+tags are updated. Other metadata segments, including ICC colour profiles and
+XMP, are not retained. Embedded EXIF thumbnails are not rebuilt and may show
+the original, unannotated image. Exact colour-profile preservation is not
+provided. CMYK JPEGs are copied unchanged to the failure category instead of
+being rendered with an unsupported colour model.
+}
+\section{File safety and repeated runs}{
+Input originals are never moved or overwritten. Non-JPEG files are copied
+unchanged. Relative subfolders are retained unless a reserved name or an existing
+file blocks a directory; affected directories then receive an alternate name.
+Existing destination files receive numeric suffixes, never silent replacement.
+Symbolic-link cycles are avoided, links outside the input tree are skipped with
+a warning, and output subfolder links cannot redirect writes outside the output
+root. Each encountered physical file path is processed once per run.
 
-A cumulative \code{processing_log.csv} is written under the output folder.
-That filename is reserved: an input file with the same name receives a
-suffix, and an input subfolder with that name becomes
-\code{processing_log_input}. Repeated calls create additional output copies.
-An empty input folder produces an empty result without creating output folders.
+JPEGs that cannot be decoded, annotated, or written are copied unchanged into
+\code{unprocessed} under the output root, preserving their relative path. That
+folder is created only when needed. If copying the original also fails, the row
+has status \code{failed}, and a warning is issued. Newly created, empty folders
+are cleaned up after copy failure.
+
+The root filename \code{processing_log.csv} is reserved for the cumulative log.
+An input file with that name receives a suffix; an input folder with that name
+is mapped to \code{processing_log_input}. An input folder called
+\code{unprocessed} is mapped to \code{unprocessed_input} so that the failure
+category is not used for successfully processed inputs. Alternate directory
+names may share a directory with a pre-existing input name; filename suffixes
+still prevent overwriting, and the log records each actual destination.
+
+Repeated calls create additional output copies; this workflow does not skip
+previously stamped sources. Use a fresh output folder when changing settings.
+The log is staged before replacement and the previous log is retained until
+replacement succeeds. Do not run concurrent writers to the same output tree.
+An empty input produces a zero-row result without creating output directories.
 }
 \examples{
-\dontrun{
-write_into_image("plotphotos_output", "dated_photos")
-write_into_image("photos", "dated_photos", date_format = "\%d.\%m.\%Y \%H:\%M",
-                 resize = TRUE, long_side = 2000, quality = 80)
-write_into_image("photos", "full_size_dated", resize = FALSE, quality = 90)
+if (capabilities("jpeg")) {
+  (function() {
+    root <- tempfile("plotphotos-stamp-")
+    dir.create(root)
+    on.exit(unlink(root, recursive = TRUE))
+    input <- file.path(root, "input")
+    dir.create(input)
+    image <- file.path(input, "example.jpg")
+    jpeg::writeJPEG(array(0.65, dim = c(120, 200, 3)), image)
+    Sys.setFileTime(image, as.POSIXct("2024-04-22 12:00:00", tz = "UTC"))
+    log <- write_into_image(
+      input, file.path(root, "dated"), date_format = "\%d.\%m.\%Y",
+      resize = TRUE, long_side = 160, quality = 80
+    )
+    log[, c("status", "stamp_text", "date_source")]
+  })()
 }
 }
 \seealso{
-\code{\link[=copy_photos_to_plots]{copy_photos_to_plots()}}
+\code{\link{copy_photos_to_plots}}, \code{\link[base:strptime]{strftime}}, \code{\link{plotphotos-package}}
 }
