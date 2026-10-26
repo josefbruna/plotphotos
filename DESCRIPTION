@@ -1,27 +1,30 @@
 Package: plotphotos
 Type: Package
-Title: Copy and Rename JPEGs by Nearest Plot Locality ID
-Version: 0.1.4
+Title: Sort Plot Photos and Stamp Capture Dates
+Version: 0.2.0
 Authors@R: c(
     person("Josef", "Brůna", email = "josef.bruna@ibot.cas.cz", role = c("aut", "cre"))
   )
-Description: Copies (does not move) JPEG/JPG files from one or more input folders,
-    extracts EXIF GPS when available, assigns each photo to the nearest plot locality_id,
-    and copies into a flattened output structure. Photos without GPS are skipped by default,
-    but can still be copied when either (a) the filename already begins with a locality_id
-    (names=TRUE) or (b) the parent folder name equals a locality_id (folders=TRUE).
-    Output naming avoids conflicts across multiple runs by checking existing files.
+Description: Copies files from one or more input folders into plot-based categories,
+    using JPEG GPS metadata, filename prefixes, or parent folder names. Files without
+    usable coordinates or a plot match are retained, and category folders are created
+    only when needed. A separate function writes capture dates onto JPEG copies while
+    preserving the input folder structure, applying EXIF orientation, and retaining
+    original files. Output naming avoids overwriting existing files.
 License: MIT + file LICENSE
 Encoding: UTF-8
-LazyData: true
 Imports:
     sf,
     exifr,
-    units
+    units,
+    jpeg,
+    graphics,
+    grDevices
 Suggests:
     roxygen2,
-    testthat (>= 3.0.0),
+    testthat (>= 3.2.0),
     devtools,
     usethis
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
+Config/testthat/edition: 3
+RoxygenNote: 7.3.1
