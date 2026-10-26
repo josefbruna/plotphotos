@@ -22,8 +22,16 @@
 #' EXIF orientation is applied before resizing. Larger images are resized with
 #' \code{magick::image_resize()} and the Lanczos filter. Black date text with a
 #' white outline is drawn in the bottom-right corner at the final resolution.
-#' The image is then JPEG-encoded once at the requested quality. This operation
-#' is lossy even when \code{resize = FALSE}; retain your original photographs.
+#' Annotation is rendered to a temporary lossless PNG, preferring the native
+#' Quartz device on macOS and Cairo elsewhere. Only a newly opened device is used;
+#' existing graphics devices are never used for annotation or closed. If a
+#' backend fails to open, another available backend is tried. If none works,
+#' the original JPEG is copied into \code{unprocessed} and the reason is logged.
+#' The PNG is decoded with \pkg{magick} and encoded once with
+#' \code{jpeg::writeJPEG()} at \code{quality / 100}. This keeps the requested JPEG
+#' quality effective on every platform, including macOS. Temporary files are
+#' removed. This operation is lossy even when \code{resize = FALSE}; retain your
+#' original photographs.
 #' No external ExifTool or ImageMagick command-line program is called by this
 #' function, although the \pkg{magick} R package uses ImageMagick libraries.
 #'
@@ -84,7 +92,7 @@
 #' @seealso \code{\link{copy_photos_to_plots}}, \code{\link[base:strptime]{strftime}}
 #'
 #' @examples
-#' if (capabilities("jpeg")) {
+#' if (capabilities("png") || capabilities("aqua")) {
 #'   (function() {
 #'     root <- tempfile("plotphotos-stamp-")
 #'     dir.create(root)
@@ -464,6 +472,50 @@ write_into_image <- function(input_folder, output_folder,
   app1
 }
 
+# A warning-only device failure must not make us draw on or close the caller's
+# device. The optional internal 'types' argument is used by regression tests.
+.stamp_open_png <- function(filename, width, height, types = NULL) {
+  if (is.null(types)) {
+    types <- unique(c(
+      if (isTRUE(capabilities("aqua"))) "quartz",
+      if (isTRUE(capabilities("cairo"))) "cairo",
+      getOption("bitmapType"),
+      if (.Platform$OS.type == "windows") "windows"
+    ))
+  }
+  types <- types[!is.na(types) & nzchar(types)]
+  before <- as.integer(grDevices::dev.list())
+  previous <- as.integer(grDevices::dev.cur())
+  errors <- character()
+  for (type in types) {
+    error <- tryCatch({
+      withCallingHandlers(
+        grDevices::png(filename, width = width, height = height, units = "px",
+                       pointsize = 12, bg = "white", type = type),
+        warning = function(w) stop(conditionMessage(w), call. = FALSE)
+      )
+      device <- as.integer(grDevices::dev.cur())
+      created <- setdiff(as.integer(grDevices::dev.list()), before)
+      if (length(created) != 1L || !identical(device, created)) {
+        stop("The backend did not open exactly one new graphics device.", call. = FALSE)
+      }
+      NULL
+    }, error = function(e) conditionMessage(e))
+    if (is.null(error)) return(device)
+
+    # Only dispose of devices created by this attempt, never pre-existing ones.
+    created <- setdiff(as.integer(grDevices::dev.list()), before)
+    for (id in rev(created)) try(grDevices::dev.off(id), silent = TRUE)
+    if (previous %in% grDevices::dev.list()) {
+      try(grDevices::dev.set(previous), silent = TRUE)
+    }
+    unlink(filename)
+    errors <- c(errors, paste0(type, ": ", error))
+  }
+  detail <- if (length(errors)) paste(errors, collapse = "; ") else "no backend is available"
+  stop("Cannot open a PNG graphics device for annotation: ", detail, call. = FALSE)
+}
+
 .stamp_write <- function(infile, outfile, label, orientation, app1,
                           resize = TRUE, long_side = 2000, quality = 80) {
   img <- jpeg::readJPEG(infile)
@@ -480,25 +532,20 @@ write_into_image <- function(input_folder, output_folder,
   }
   h <- nrow(bitmap)
   w <- ncol(bitmap)
+  png_file <- tempfile("plotphotos_stamp_", fileext = ".png")
   tmp <- tempfile("plotphotos_stamp_", fileext = ".jpg")
+  previous_device <- grDevices::dev.cur()
   device <- NA_integer_
   on.exit({
     if (!is.na(device) && device %in% grDevices::dev.list()) {
       try(grDevices::dev.off(device), silent = TRUE)
     }
-    unlink(tmp)
+    if (previous_device %in% grDevices::dev.list()) {
+      try(grDevices::dev.set(previous_device), silent = TRUE)
+    }
+    unlink(c(png_file, tmp))
   }, add = TRUE)
-  opened <- FALSE
-  if (isTRUE(capabilities("cairo"))) {
-    opened <- tryCatch({
-      grDevices::jpeg(tmp, width = w, height = h, units = "px", quality = quality,
-                      pointsize = 12, type = "cairo")
-      TRUE
-    }, error = function(e) FALSE)
-  }
-  if (!opened) grDevices::jpeg(tmp, width = w, height = h, units = "px",
-                               quality = quality, pointsize = 12)
-  device <- grDevices::dev.cur()
+  device <- .stamp_open_png(png_file, w, h)
   graphics::par(mar = c(0, 0, 0, 0), xaxs = "i", yaxs = "i")
   graphics::plot.new()
   graphics::plot.window(xlim = c(0, w), ylim = c(0, h), asp = 1)
@@ -521,6 +568,20 @@ write_into_image <- function(input_folder, output_folder,
                  col = "black", xpd = NA)
   grDevices::dev.off(device)
   device <- NA_integer_
+  if (!file.exists(png_file) || is.na(file.info(png_file)$size) ||
+      file.info(png_file)$size == 0) {
+    stop("The graphics device did not write the annotated PNG.", call. = FALSE)
+  }
+  # Use a lossless intermediate: Quartz's JPEG path does not forward quality.
+  # Both packages support raw RGBA arrays indexed as [channel, x, y].
+  # This avoids an additional full-size floating-point copy of the image.
+  rendered <- magick::image_read(png_file)
+  on.exit(magick::image_destroy(rendered), add = TRUE)
+  pixels <- magick::image_data(rendered, channels = "rgba")
+  if (!identical(dim(pixels), c(4L, as.integer(w), as.integer(h)))) {
+    stop("The graphics device produced unexpected image dimensions.", call. = FALSE)
+  }
+  jpeg::writeJPEG(pixels, target = tmp, quality = quality / 100)
   if (!is.null(app1)) {
     bytes <- readBin(tmp, "raw", n = file.info(tmp)$size)
     app1 <- .stamp_reset_orientation(app1, width = w, height = h)

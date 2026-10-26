@@ -1,3 +1,22 @@
+# plotphotos 0.3.2
+
+Fix the graphics-device failure identified in the supplied macOS CI log.
+Runtime validation of this revision is still pending.
+
+* Prefer native Quartz PNG rendering on macOS instead of forcing Cairo/XQuartz.
+* Verify that a new device actually opened; warning-only or silent failures no
+  longer lead to drawing on, altering, or closing the caller's graphics device.
+* Close only devices opened by the current attempt, and restore the previously
+  active device. Preserve input JPEGs if all rendering backends fail.
+* Render to a lossless temporary PNG and encode once with jpeg::writeJPEG(),
+  keeping the requested quality effective on macOS as well as Windows/Linux.
+* Add regression tests for warning-only, silent and partially opened device
+  failures, failed-backend fallback, caller-device preservation, and RGB output.
+* Update the existing help page and README; keep exactly two public functions
+  and two help pages. Keep authorship, AI acknowledgement, parameters and defaults.
+* Include the revised single CI workflow, pinned Linux runners, full failure
+  logs, fresh installed-help checks, and the R 4.3.3 compatibility job.
+
 # plotphotos 0.3.1
 
 Help-index cleanup and improved diagnostics; runtime validation is still pending.

@@ -1,5 +1,5 @@
-# Uses the official r-lib/actions v2 package-check workflow.
-# Reference: https://github.com/r-lib/actions/tree/v2/examples
+# For plotphotos >= 0.3.2. Replace the existing file; do not add a second workflow.
+# Based on https://github.com/r-lib/actions/tree/v2/examples
 name: R-CMD-check
 
 on:
@@ -11,59 +11,123 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   R-CMD-check:
     runs-on: ${{ matrix.config.os }}
     name: ${{ matrix.config.os }} (R ${{ matrix.config.r }})
-    timeout-minutes: 45
+    # Allow cold dependency builds, particularly sf/s2 and R-devel.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         config:
           - {os: windows-latest, r: 'release', manual: false, args: 'c("--as-cran", "--no-manual")'}
           - {os: macos-latest, r: 'release', manual: false, args: 'c("--as-cran", "--no-manual")'}
-          - {os: ubuntu-latest, r: 'release', manual: true, args: 'c("--as-cran")'}
-          - {os: ubuntu-latest, r: 'devel', manual: false, args: 'c("--as-cran", "--no-manual")'}
-          - {os: ubuntu-latest, r: 'oldrel-1', manual: false, args: 'c("--as-cran", "--no-manual")'}
+          - {os: ubuntu-24.04, r: 'release', manual: true, args: 'c("--as-cran")'}
+          - {os: ubuntu-24.04, r: 'devel', manual: false, http-user-agent: 'release', args: 'c("--as-cran", "--no-manual")'}
+          - {os: ubuntu-24.04, r: 'oldrel-1', manual: false, args: 'c("--as-cran", "--no-manual")'}
           - {os: ubuntu-22.04, r: '4.3.3', manual: false, args: 'c("--as-cran", "--no-manual")'}
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
-      R_KEEP_PKG_SOURCE: yes
+      R_KEEP_PKG_SOURCE: 'yes'
+      MAKEFLAGS: '-j2'
+      _R_CHECK_FORCE_SUGGESTS_: 'true'
     steps:
       - uses: actions/checkout@v6
+
       - uses: r-lib/actions/setup-r@v2
         with:
           r-version: ${{ matrix.config.r }}
+          http-user-agent: ${{ matrix.config.http-user-agent || 'default' }}
           use-public-rspm: true
-      - uses: r-lib/actions/setup-tinytex@v2
-        if: matrix.config.manual
-        env:
-          TINYTEX_INSTALLER: TinyTeX
+          Ncpus: 2
+
+      - name: Identify the source and R environment
+        shell: Rscript {0}
+        run: |
+          cat("Workflow revision: 0.3.2-device-fix\n")
+          cat("Commit:", Sys.getenv("GITHUB_SHA"), "\n")
+          print(read.dcf("DESCRIPTION", fields = c("Package", "Version")))
+          print(R.version.string)
+          print(.libPaths())
+          print(capabilities(c("png", "jpeg", "cairo", "aqua")))
+          print(getOption("bitmapType"))
+
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           extra-packages: any::rcmdcheck
           needs: check
-      - uses: r-lib/actions/check-r-package@v2
+          cache: always
+
+      - uses: r-lib/actions/setup-tinytex@v2
+        if: matrix.config.manual
+        env:
+          TINYTEX_INSTALLER: TinyTeX
+
+      - name: Check package, including examples and tests
+        id: check
+        uses: r-lib/actions/check-r-package@v2
         with:
           args: ${{ matrix.config.args }}
           build_args: 'character()'
           error-on: '"warning"'
+          check-dir: '"check"'
           upload-results: true
-      - name: Install without static HTML (exercise dynamic help)
+
+      - name: Show full check and failing example logs
+        if: ${{ always() && steps.check.outcome == 'failure' }}
         shell: Rscript {0}
         run: |
-          install.packages(".", repos = NULL, type = "source", INSTALL_opts = "--no-html")
-      - name: Verify installed help in a fresh R session
+          logs <- list.files(
+            "check", recursive = TRUE, full.names = TRUE,
+            pattern = "(00check[.]log|[.]Rout[.]fail|plotphotos-Ex[.]Rout)$"
+          )
+          if (!length(logs)) cat("No check logs were produced. Inspect the preceding step.\n")
+          for (path in logs) {
+            cat("\n========== ", path, " ==========\n", sep = "")
+            cat(readLines(path, warn = FALSE), sep = "\n")
+          }
+
+      - name: Install the current source for help checks
         shell: Rscript {0}
         run: |
           topics <- c("copy_photos_to_plots", "write_into_image")
-          stopifnot(setequal(names(tools::Rd_db("plotphotos")), paste0(topics, ".Rd")))
-          package_path <- find.package("plotphotos")
+          pages <- list.files("man", pattern = "[.]Rd$")
+          if (!setequal(pages, paste0(topics, ".Rd"))) {
+            stop("Expected exactly two man/*.Rd files. Remove obsolete help pages.")
+          }
+          # Isolate this installation from cached dependencies and check libraries.
+          lib <- file.path(Sys.getenv("RUNNER_TEMP"), "plotphotos-help-library")
+          dir.create(lib, recursive = TRUE, showWarnings = FALSE)
+          r <- file.path(R.home("bin"), if (.Platform$OS.type == "windows") "R.exe" else "R")
+          status <- system2(r, c("CMD", "INSTALL", "--no-html",
+                                paste0("--library=", shQuote(lib)), shQuote(getwd())))
+          if (status != 0L) stop("Installation for help checks failed; see the installer output.")
+          expected <- read.dcf("DESCRIPTION", fields = "Version")[[1L]]
+          stopifnot(as.character(utils::packageVersion("plotphotos", lib.loc = lib)) == expected)
+
+      - name: Verify only the two public help pages in a fresh R session
+        shell: Rscript {0}
+        run: |
+          lib <- file.path(Sys.getenv("RUNNER_TEMP"), "plotphotos-help-library")
+          .libPaths(c(lib, .libPaths()))
+          topics <- c("copy_photos_to_plots", "write_into_image")
+          package_path <- find.package("plotphotos", lib.loc = lib)
+          cat("Testing installed help in:", package_path, "\n")
+          stopifnot(setequal(names(tools::Rd_db("plotphotos", lib.loc = lib)),
+                             paste0(topics, ".Rd")))
+          loadNamespace("plotphotos", lib.loc = lib)
+          stopifnot(setequal(getNamespaceExports("plotphotos"), topics))
           get_help_file <- getFromNamespace(".getHelpFile", "utils")
           handler <- getFromNamespace("httpd", "tools")
           for (topic in topics) {
-            h <- utils::help(topic, package = "plotphotos")
-            stopifnot(length(h) == 1L)
+            cat("Checking help topic:", topic, "\n")
+            h <- utils::help(topic, package = "plotphotos", lib.loc = lib)
+            if (length(h) != 1L) stop("Missing or ambiguous help topic: ", topic)
             rd <- get_help_file(h)
             target <- tempfile(fileext = ".html")
             tools::Rd2HTML(rd, out = target, package = package_path, dynamic = TRUE)
@@ -78,4 +142,5 @@ jobs:
             stopifnot(grepl("<html", html, ignore.case = TRUE), grepl(topic, html, fixed = TRUE))
             stopifnot(!grepl("Internal Server Error|httpd error", html, ignore.case = TRUE))
             unlink(target)
+            cat("PASS:", topic, "\n")
           }

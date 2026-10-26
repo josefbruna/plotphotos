@@ -1,10 +1,10 @@
-# plotphotos 0.3.1
+# plotphotos 0.3.2
 
 Organize field photographs and accompanying files by plot locality, then optionally resize JPEG copies and write capture dates onto them. There are just two public functions: `copy_photos_to_plots()` and `write_into_image()`.
 
 **Created and maintained by Josef Brůna, with extensive assistance from OpenAI's ChatGPT in code development, debugging, tests, and documentation.** Josef defines the requirements and is responsible for reviewing and approving releases and maintaining the package. ChatGPT is acknowledged as a development tool, not a package author. The package does not call an AI service or send photographs to one. Specific model snapshots used throughout development were not recorded.
 
-**Release status:** 0.3.1 is a CRAN-preparation candidate. It has not been submitted to or accepted by CRAN. The editor used for this revision had no R runtime and could not download one, so no passing R checks are claimed for this revision. The included workflow and tests must be run before release/submission.
+**Release status:** 0.3.2 is a CRAN-preparation candidate. It has not been submitted to or accepted by CRAN. The editor used for this revision had no R runtime and could not download one, so no passing R checks are claimed for this revision. The included workflow and tests must be run before release/submission.
 
 ## Install or update
 
@@ -31,7 +31,7 @@ Restart R once more after installation. Then:
 
 ``` r
 library(plotphotos)
-packageVersion("plotphotos")  # should be 0.3.1
+packageVersion("plotphotos")  # should be 0.3.2
 help("copy_photos_to_plots", package = "plotphotos")
 help("write_into_image", package = "plotphotos")
 citation("plotphotos")
@@ -127,7 +127,11 @@ stamp_log <- write_into_image(
 )
 ```
 
-EXIF orientation is applied first. Larger photographs are reduced using Lanczos resampling, and black date text with a white outline is drawn in the bottom-right corner at the final resolution. The image is JPEG-encoded once at the requested quality; no intermediate JPEG is written.
+EXIF orientation is applied first. Larger photographs are reduced using Lanczos resampling, and black date text with a white outline is drawn in the bottom-right corner at the final resolution. Annotation is rendered to a temporary lossless PNG, then JPEG-encoded once using `jpeg::writeJPEG(quality = quality / 100)`; no intermediate JPEG is written. Temporary files are removed automatically.
+
+On macOS the native Quartz PNG backend is preferred, avoiding a dependency on XQuartz for this rendering path. Cairo is preferred elsewhere, with another backend tried if opening fails. Every attempt verifies that a **new** graphics device was opened. The caller's existing devices and active device are preserved, including on rendering failure. If no backend works, the original JPEG is copied to `unprocessed`, with the actual failure reason recorded in the log.
+
+The lossless intermediate is important: simply switching to R's Quartz JPEG backend would not reliably apply the requested `quality`. Final encoding now uses the same `jpeg` package and quality scale on all supported platforms.
 
 | Parameter | Default | Meaning |
 |------------------------|------------------------|------------------------|
@@ -172,13 +176,44 @@ Sorting category directories must be distinct and must not contain one another. 
 
 Logs are UTF-8 CSVs. Existing ASCII/UTF-8 logs from 0.2.x are supported; incompatible or incorrectly encoded logs are not silently replaced. Convert an older log to UTF-8 or choose a new log path when required. Log writes are staged, retaining a previous-log backup until replacement succeeds. A process interruption can leave a hidden `.plotphotos-log-backup-*.csv` next to the log; retain it for recovery. **Do not run concurrent writers to the same output tree or log.**
 
+## Help pages showing "Internal Server Error"
+
+There are exactly two help topics, one per exported function. No internal helper has a help page. The extra package overview and its duplicate aliases have been removed; the README and DESCRIPTION provide the overview instead. When updating an existing GitHub checkout, remove `man/plotphotos-package.Rd` as well as copying the replacement files. Copying over a directory does not remove obsolete files.
+
+The previously reported error was confined to the active R session: the same installed help database passed retrieval and HTML rendering in a fresh R process. The maintainer subsequently confirmed that help works after restarting R. It was not fixed by deleting or rewriting the help topics. Description and NEWS follow different rendering paths and can work while a function-help request fails.
+
+Check the actual installed version, library, and topic list:
+
+``` r
+packageVersion("plotphotos")
+find.package("plotphotos")
+.libPaths()
+names(tools::Rd_db("plotphotos"))
+# Expected: copy_photos_to_plots.Rd and write_into_image.Rd
+```
+
+The source archive has no compiled help database and no prebuilt function HTML. A normal package installation rebuilds them. Restart R before installation and again afterwards; do not overwrite an installed package and keep using a loaded copy in the same session. `--html` builds static pages, but is not by itself a fix for the dynamic help server or a damaged/cached installed help database.
+
+To expose the underlying R error instead of the browser's generic message:
+
+``` r
+h <- utils::help("write_into_image", package = "plotphotos")
+rd <- getFromNamespace(".getHelpFile", "utils")(h)
+tools::Rd2HTML(
+  rd, out = tempfile(fileext = ".html"),
+  package = find.package("plotphotos"), dynamic = TRUE
+)
+```
+
+This is diagnostic code, not a package dependency on R's internal help API. Report the full console error and the actual installed library path. If the conversion succeeds but the viewer fails, the next diagnostic is R's help request handler and the same tests in a fresh `Rscript --vanilla` process. A read-only `plotphotos_help_diagnostic.R` script provided with the earlier 0.3.1 source delivery performs these comparisons; it is not part of this package.
+
 ## Authorship, licence, and citation
 
 Josef Brůna is the author and maintainer. The existing Institute of Botany copyright and MIT licence are retained. AI assistance is disclosed prominently above, in both function help pages, and in the citation information.
 
 Recommended package citation:
 
-> Brůna, J. (2026). plotphotos: Organize Field Photographs and Annotate Capture Dates. R package version 0.3.1. <https://github.com/josefbruna/plotphotos>
+> Brůna, J. (2026). plotphotos: Organize Field Photographs and Annotate Capture Dates. R package version 0.3.2. <https://github.com/josefbruna/plotphotos>
 
 Separate acknowledgement of the AI development tool:
 
@@ -186,4 +221,13 @@ Separate acknowledgement of the AI development tool:
 
 `citation("plotphotos")` returns these as two clearly distinguished entries, with the package citation first. It does not list OpenAI as a package co-author.
 
-## 
+Development references:
+
+- R Core Team, *Writing R Extensions*: <https://cran.r-project.org/doc/manuals/r-release/R-exts.html>
+- CRAN Repository Policy (verify current requirements before submission): <https://cran.r-project.org/web/packages/policies.html>
+- R graphics devices: <https://stat.ethz.ch/R-manual/R-devel/library/grDevices/html/png.html>
+- jpeg::writeJPEG(): <https://search.r-project.org/CRAN/refmans/jpeg/html/writeJPEG.html>
+- r-lib Actions: <https://github.com/r-lib/actions>
+- OpenAI, *Sharing & publication policy*: <https://openai.com/policies/sharing-publication-policy/>
+
+See `NEWS.md` for changes from 0.2.1.

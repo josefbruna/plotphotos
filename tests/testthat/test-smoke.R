@@ -124,7 +124,7 @@ test_that("invalid coordinates use no-GPS rules and deleted copies can be restor
 })
 
 test_that("stamping preserves source files, relative folders and the caller's device", {
-  skip_if_not(capabilities("jpeg"))
+  skip_if_not(capabilities("png") || capabilities("aqua"))
   root <- test_root()
   input <- file.path(root, "input")
   dir.create(file.path(input, "nested"), recursive = TRUE)
@@ -160,7 +160,7 @@ test_that("stamping preserves source files, relative folders and the caller's de
 })
 
 test_that("EXIF capture dates and displayed orientation survive stamping", {
-  skip_if_not(capabilities("jpeg"))
+  skip_if_not(capabilities("png") || capabilities("aqua"))
   root <- test_root()
   input <- file.path(root, "input")
   dir.create(input)
@@ -228,7 +228,7 @@ test_that("stamping keeps all files when existing outputs block directory paths"
 })
 
 test_that("resizing shrinks oriented photos to the requested long side without enlarging", {
-  skip_if_not(capabilities("jpeg"))
+  skip_if_not(capabilities("png") || capabilities("aqua"))
   root <- test_root()
   input <- file.path(root, "input")
   dir.create(input)
@@ -272,7 +272,7 @@ test_that("resizing shrinks oriented photos to the requested long side without e
 })
 
 test_that("JPEG quality changes the encoded quantization tables", {
-  skip_if_not(capabilities("jpeg"))
+  skip_if_not(capabilities("png") || capabilities("aqua"))
   root <- test_root()
   input <- file.path(root, "input")
   dir.create(input)
@@ -377,7 +377,7 @@ test_that("citation separates the human author from the AI development tool", {
 })
 
 test_that("the actual default long side is 2000 and smaller inputs are not enlarged", {
-  skip_if_not(capabilities("jpeg"))
+  skip_if_not(capabilities("png") || capabilities("aqua"))
   root <- test_root()
   input <- file.path(root, "input")
   dir.create(input)
@@ -533,4 +533,125 @@ test_that("a failed log replacement restores the previous log", {
                "previous log was preserved")
   expect_equal(tools::md5sum(path), digest)
   expect_equal(plotphotos:::read_processing_log(path), previous)
+})
+
+test_that("device fallback rejects warning-only, silent and partially opened failures", {
+  root <- test_root()
+  original_devices <- as.integer(grDevices::dev.list())
+  original_current <- grDevices::dev.cur()
+  withr::defer({
+    for (id in rev(setdiff(as.integer(grDevices::dev.list()), original_devices))) {
+      try(grDevices::dev.off(id), silent = TRUE)
+    }
+    if (original_current %in% grDevices::dev.list()) grDevices::dev.set(original_current)
+  })
+  grDevices::pdf(file.path(root, "caller.pdf"))
+  caller <- grDevices::dev.cur()
+  graphics::plot(1:3, 1:3)
+  saved_par <- graphics::par(c("usr", "mar", "xaxs", "yaxs"))
+  before <- grDevices::dev.list()
+  attempts <- character()
+  local_mocked_bindings(png = function(filename, ..., type) {
+    attempts <<- c(attempts, type)
+    if (type == "warning") {
+      warning("simulated missing Cairo library", call. = FALSE)
+      return(invisible(NULL))
+    }
+    if (type == "silent") return(invisible(NULL))
+    if (type == "error") stop("simulated backend error")
+    # A real PDF device stands in for a PNG device in this ownership-only test.
+    grDevices::pdf(filename)
+    if (type == "partial") warning("simulated partial initialization", call. = FALSE)
+  }, .package = "grDevices")
+  target <- file.path(root, "device-test.png")
+  types <- c("warning", "silent", "error", "partial", "success")
+  expect_no_warning(device <- plotphotos:::.stamp_open_png(target, 120, 80, types))
+  expect_equal(attempts, types)
+  expect_true(device %in% grDevices::dev.list())
+  expect_false(device %in% before)
+  expect_equal(length(grDevices::dev.list()), length(before) + 1L)
+  expect_true(all(before %in% grDevices::dev.list()))
+  grDevices::dev.off(device)
+  expect_equal(grDevices::dev.cur(), caller)
+  expect_equal(graphics::par(c("usr", "mar", "xaxs", "yaxs")), saved_par)
+  expect_equal(grDevices::dev.list(), before)
+})
+
+test_that("unavailable graphics backends retain originals without touching caller devices", {
+  root <- test_root()
+  input <- file.path(root, "input")
+  dir.create(input)
+  photo <- file.path(input, "photo.jpg")
+  jpeg::writeJPEG(array(0.65, c(80, 120, 3)), photo)
+  digest <- tools::md5sum(photo)
+  original_devices <- as.integer(grDevices::dev.list())
+  original_current <- grDevices::dev.cur()
+  withr::defer({
+    for (id in rev(setdiff(as.integer(grDevices::dev.list()), original_devices))) {
+      try(grDevices::dev.off(id), silent = TRUE)
+    }
+    if (original_current %in% grDevices::dev.list()) grDevices::dev.set(original_current)
+  })
+  grDevices::pdf(file.path(root, "caller.pdf"))
+  caller <- grDevices::dev.cur()
+  graphics::plot(1:3, 1:3)
+  saved_par <- graphics::par(c("usr", "mar", "xaxs", "yaxs"))
+  before <- grDevices::dev.list()
+  local_mocked_bindings(png = function(...) {
+    warning("simulated unavailable PNG backend", call. = FALSE)
+    invisible(NULL)
+  }, .package = "grDevices")
+  expect_no_warning(result <- suppressMessages(write_into_image(input,
+    file.path(root, "output"), resize = FALSE)))
+  expect_equal(result$status, "unprocessed")
+  expect_match(result$error, "Cannot open a PNG graphics device")
+  expect_match(result$error, "simulated unavailable PNG backend")
+  expect_equal(unname(tools::md5sum(result$output_file)), unname(digest))
+  expect_equal(tools::md5sum(photo), digest)
+  expect_equal(grDevices::dev.list(), before)
+  expect_equal(grDevices::dev.cur(), caller)
+  expect_equal(graphics::par(c("usr", "mar", "xaxs", "yaxs")), saved_par)
+})
+
+test_that("silent backend failure is not accepted as an open graphics device", {
+  root <- test_root()
+  before <- grDevices::dev.list()
+  current <- grDevices::dev.cur()
+  local_mocked_bindings(png = function(...) invisible(NULL), .package = "grDevices")
+  expect_error(plotphotos:::.stamp_open_png(file.path(root, "absent.png"),
+    120, 80, types = "silent"), "did not open exactly one new graphics device")
+  expect_equal(grDevices::dev.list(), before)
+  expect_equal(grDevices::dev.cur(), current)
+  expect_false(file.exists(file.path(root, "absent.png")))
+})
+
+test_that("successful annotation restores a non-last caller device and keeps RGB output", {
+  skip_if_not(capabilities("png") || capabilities("aqua"))
+  root <- test_root()
+  input <- file.path(root, "input")
+  dir.create(input)
+  photo <- file.path(input, "grey.jpg")
+  jpeg::writeJPEG(array(0.6, c(80, 120, 3)), photo)
+  original_devices <- as.integer(grDevices::dev.list())
+  original_current <- grDevices::dev.cur()
+  withr::defer({
+    for (id in rev(setdiff(as.integer(grDevices::dev.list()), original_devices))) {
+      try(grDevices::dev.off(id), silent = TRUE)
+    }
+    if (original_current %in% grDevices::dev.list()) grDevices::dev.set(original_current)
+  })
+  grDevices::pdf(file.path(root, "first.pdf"))
+  caller <- grDevices::dev.cur()
+  graphics::plot(1:3, 1:3)
+  saved_par <- graphics::par(c("usr", "mar", "xaxs", "yaxs"))
+  grDevices::pdf(file.path(root, "second.pdf"))
+  grDevices::dev.set(caller)
+  before <- grDevices::dev.list()
+  expect_no_warning(result <- suppressMessages(write_into_image(input,
+    file.path(root, "output"), resize = FALSE, quality = 80)))
+  expect_equal(result$status, "stamped")
+  expect_equal(dim(jpeg::readJPEG(result$output_file)), c(80L, 120L, 3L))
+  expect_equal(grDevices::dev.list(), before)
+  expect_equal(grDevices::dev.cur(), caller)
+  expect_equal(graphics::par(c("usr", "mar", "xaxs", "yaxs")), saved_par)
 })

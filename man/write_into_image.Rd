@@ -60,8 +60,16 @@ If no time is available, the text is \code{"unknown date"}.
 EXIF orientation is applied before resizing. Larger images are resized with
 \code{magick::image_resize()} and the Lanczos filter. Black date text with a
 white outline is drawn in the bottom-right corner at the final resolution.
-The image is then JPEG-encoded once at the requested quality. This operation
-is lossy even when \code{resize = FALSE}; retain your original photographs.
+Annotation is rendered to a temporary lossless PNG, preferring the native
+Quartz device on macOS and Cairo elsewhere. Only a newly opened device is used;
+existing graphics devices are never used for annotation or closed. If a
+backend fails to open, another available backend is tried. If none works,
+the original JPEG is copied into \code{unprocessed} and the reason is logged.
+The PNG is decoded with \pkg{magick} and encoded once with
+\code{jpeg::writeJPEG()} at \code{quality / 100}. This keeps the requested JPEG
+quality effective on every platform, including macOS. Temporary files are
+removed. This operation is lossy even when \code{resize = FALSE}; retain your
+original photographs.
 No external ExifTool or ImageMagick command-line program is called by this
 function, although the \pkg{magick} R package uses ImageMagick libraries.
 
@@ -104,7 +112,7 @@ replacement succeeds. Do not run concurrent writers to the same output tree.
 An empty input produces a zero-row result without creating output directories.
 }
 \examples{
-if (capabilities("jpeg")) {
+if (capabilities("png") || capabilities("aqua")) {
   (function() {
     root <- tempfile("plotphotos-stamp-")
     dir.create(root)

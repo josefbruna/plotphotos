@@ -1,4 +1,4 @@
-# plotphotos 0.3.1 - draft, not yet submitted
+# plotphotos 0.3.2 - draft, not yet submitted
 
 This file is excluded from the built package. Update it with real results before
 using it in a CRAN submission. Do not submit this unchecked draft as a clean check.
@@ -21,7 +21,7 @@ The maintainer must review and approve the final release.
 
 ## Validation status for this revision
 
-- Source and documentation review: performed; help index and regression checks updated; this is not an R execution result.
+- Source and documentation review: performed; graphics-device failure handling and regression checks updated; this is not an R execution result.
 - R runtime tests, examples, installed-help rendering, and R CMD check: NOT RUN.
 - Windows, macOS, Linux R-release, R-devel, R-oldrel, and R 4.3.3 CI: configured, NOT RUN.
 - PDF manual build: NOT RUN.
@@ -30,17 +30,28 @@ The maintainer must review and approve the final release.
 - CRAN submission: NOT MADE.
 
 The editing container had no R or Rscript, and could not download an R installation.
-Earlier test counts reported for 0.2.x are not results for 0.3.1 and are not repeated
+Earlier test counts reported for 0.2.x are not results for 0.3.2 and are not repeated
 as evidence. Replace the list above with actual versions/platforms and check
 results once the included checks have been run. Explain remaining NOTEs accurately.
 
-## Unresolved installed-help report
+## Previous help report and observed CI failure
 
-Function help returned "Internal Server Error" on the maintainer's machine,
-while Description and NEWS worked. The extra package topic is now removed, but
-the root cause has not been established. Do not submit until the installed-help
-checks pass and the reported failure is resolved. The separate read-only
-help diagnostic compares the affected session with a fresh Rscript process.
+The maintainer confirmed that function help works after restarting R. The previous
+active-session lazy-load error did not reproduce in a fresh Rscript process on the
+same installed version. Do not describe this as an unresolved documentation bug.
+
+The supplied macOS log is for plotphotos 0.3.1, run 40412467610, commit
+4ef24ca5ee682ea36afc027c1ff393f58678cc8a. It reports R 4.6.1 on macOS arm64:
+15 failing assertions, 20 test warnings and 156 passing assertions; R CMD check
+ended with 2 ERRORs (examples and tests). Cairo could not load the XQuartz
+libraries. Warning-only device initialization was treated as successful, causing
+the caller's device to be used/closed and unprocessed originals to be returned.
+
+Version 0.3.2 addresses that code path with verified device ownership, Quartz PNG
+rendering on macOS and a lossless intermediate before quality-controlled JPEG
+encoding. Four regression blocks were added without adding package files.
+This upload contained only the macOS job: no conclusions about the Windows or
+Linux failures can be drawn from it. No passing results for 0.3.2 are claimed.
 
 ## Final maintainer checks
 
