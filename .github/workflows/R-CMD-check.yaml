@@ -25,6 +25,7 @@ jobs:
           - {os: ubuntu-latest, r: 'release', manual: true, args: 'c("--as-cran")'}
           - {os: ubuntu-latest, r: 'devel', manual: false, args: 'c("--as-cran", "--no-manual")'}
           - {os: ubuntu-latest, r: 'oldrel-1', manual: false, args: 'c("--as-cran", "--no-manual")'}
+          - {os: ubuntu-22.04, r: '4.3.3', manual: false, args: 'c("--as-cran", "--no-manual")'}
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
@@ -48,14 +49,33 @@ jobs:
           build_args: 'character()'
           error-on: '"warning"'
           upload-results: true
-      - name: Fresh installation with static HTML help
+      - name: Install without static HTML (exercise dynamic help)
         shell: Rscript {0}
         run: |
-          install.packages(".", repos = NULL, type = "source", INSTALL_opts = "--html")
-          for (topic in c("copy_photos_to_plots", "write_into_image", "plotphotos-package")) {
-            stopifnot(length(utils::help(topic, package = "plotphotos")) > 0L)
-            page <- system.file("html", paste0(topic, ".html"), package = "plotphotos")
-            stopifnot(nzchar(page), file.exists(page))
-            html <- paste(readLines(page, warn = FALSE), collapse = "\n")
-            stopifnot(!grepl("Internal Server Error", html, fixed = TRUE))
+          install.packages(".", repos = NULL, type = "source", INSTALL_opts = "--no-html")
+      - name: Verify installed help in a fresh R session
+        shell: Rscript {0}
+        run: |
+          topics <- c("copy_photos_to_plots", "write_into_image")
+          stopifnot(setequal(names(tools::Rd_db("plotphotos")), paste0(topics, ".Rd")))
+          package_path <- find.package("plotphotos")
+          get_help_file <- getFromNamespace(".getHelpFile", "utils")
+          handler <- getFromNamespace("httpd", "tools")
+          for (topic in topics) {
+            h <- utils::help(topic, package = "plotphotos")
+            stopifnot(length(h) == 1L)
+            rd <- get_help_file(h)
+            target <- tempfile(fileext = ".html")
+            tools::Rd2HTML(rd, out = target, package = package_path, dynamic = TRUE)
+            stopifnot(file.exists(target), file.info(target)$size > 0)
+            response <- handler(paste0("/library/plotphotos/html/", topic, ".html"), query = NULL)
+            status <- response[["status code"]]
+            stopifnot(is.null(status) || identical(as.integer(status), 200L))
+            html <- response$payload
+            if (is.null(html) && !is.null(response$file)) html <- readLines(response$file, warn = FALSE)
+            stopifnot(is.character(html), length(html) > 0L)
+            html <- paste(html, collapse = "\n")
+            stopifnot(grepl("<html", html, ignore.case = TRUE), grepl(topic, html, fixed = TRUE))
+            stopifnot(!grepl("Internal Server Error|httpd error", html, ignore.case = TRUE))
+            unlink(target)
           }
